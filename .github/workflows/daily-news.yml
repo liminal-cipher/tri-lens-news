@@ -1,0 +1,29 @@
+name: Tri-Lens Daily News
+
+on:
+  schedule:
+    # 매일 아침 8시 KST = 전날 23:00 UTC
+    - cron: '0 23 * * *'
+  workflow_dispatch: # 수동 테스트용
+
+jobs:
+  send-news:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests feedparser
+
+      - name: Fetch news and send email
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENTS: ${{ secrets.RECIPIENTS }}
+        run: python scripts/daily_news.py
