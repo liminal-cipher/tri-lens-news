@@ -8,11 +8,14 @@ Tri-Lens Daily News
 import os
 import json
 import smtplib
+import time
 import requests
 import feedparser
 from datetime import datetime, timezone, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # ── 설정 ──
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
@@ -27,39 +30,59 @@ KST = timezone(timedelta(hours=9))
 
 # ── 뉴스 수집 ──
 
-def fetch_hackernews_top(limit=30):
-    """Hacker News 상위 스토리 가져오기"""
-    top_ids = requests.get(
-        "https://hacker-news.firebaseio.com/v0/topstories.json", timeout=10
-    ).json()[:limit]
+def get_session():
+    """재시도 로직이 포함된 requests 세션 생성"""
+    session = requests.Session()
+    retries = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
+    session.mount("https://", HTTPAdapter(max_retries=retries))
+    return session
+
+
+def fetch_hackernews_top(limit=15):
+    """Hacker News 상위 스토리 가져오기 (실패 시 빈 리스트 반환)"""
+    session = get_session()
+    try:
+        top_ids = session.get(
+            "https://hacker-news.firebaseio.com/v0/topstories.json", timeout=15
+        ).json()[:limit]
+    except Exception as e:
+        print(f"  ⚠ HN 목록 가져오기 실패: {e}")
+        return []
 
     stories = []
     for sid in top_ids:
-        item = requests.get(
-            f"https://hacker-news.firebaseio.com/v0/item/{sid}.json", timeout=10
-        ).json()
-        if item and item.get("type") == "story" and item.get("url"):
-            stories.append({
-                "title": item.get("title", ""),
-                "url": item.get("url", ""),
-                "score": item.get("score", 0),
-                "source": "Hacker News",
-            })
+        try:
+            item = session.get(
+                f"https://hacker-news.firebaseio.com/v0/item/{sid}.json", timeout=15
+            ).json()
+            if item and item.get("type") == "story" and item.get("url"):
+                stories.append({
+                    "title": item.get("title", ""),
+                    "url": item.get("url", ""),
+                    "score": item.get("score", 0),
+                    "source": "Hacker News",
+                })
+        except Exception:
+            continue  # 개별 항목 실패는 무시하고 다음으로
     return stories
 
 
 def fetch_geeknews():
-    """GeekNews RSS 피드 가져오기"""
-    feed = feedparser.parse("https://news.hada.io/rss")
-    stories = []
-    for entry in feed.entries[:15]:
-        stories.append({
-            "title": entry.get("title", ""),
-            "url": entry.get("link", ""),
-            "score": 0,
-            "source": "GeekNews",
-        })
-    return stories
+    """GeekNews RSS 피드 가져오기 (실패 시 빈 리스트 반환)"""
+    try:
+        feed = feedparser.parse("https://news.hada.io/rss")
+        stories = []
+        for entry in feed.entries[:15]:
+            stories.append({
+                "title": entry.get("title", ""),
+                "url": entry.get("link", ""),
+                "score": 0,
+                "source": "GeekNews",
+            })
+        return stories
+    except Exception as e:
+        print(f"  ⚠ GeekNews 가져오기 실패: {e}")
+        return []
 
 
 # ── Gemini API ──
@@ -202,10 +225,14 @@ def main():
 
     # 1. 뉴스 수집
     print("뉴스 수집 중...")
-    hn_stories = fetch_hackernews_top(30)
+    hn_stories = fetch_hackernews_top(15)
     gn_stories = fetch_geeknews()
     all_stories = hn_stories + gn_stories
     print(f"  HN {len(hn_stories)}개 + GN {len(gn_stories)}개")
+
+    if len(all_stories) < 3:
+        print("뉴스를 충분히 가져오지 못했습니다. 종료.")
+        return
 
     # 2. AI/테크 뉴스 선별
     print("AI/테크 뉴스 선별 중...")
