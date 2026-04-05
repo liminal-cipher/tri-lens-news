@@ -1,36 +1,56 @@
-# Tri-Lens Daily News 🔍
+# Tri-Lens Daily News
 
-매일 아침 8시(KST), AI/테크 뉴스 3개를 3가지 렌즈로 해석해서 이메일로 보내줍니다.
+An automated pipeline that delivers AI/tech news every morning, interpreted through three depth levels. In a field that moves daily, everyone needs to keep up — but not everyone needs the same depth. Tri-Lens serves the same article at three levels so each reader gets the insight that matters to them.
 
-## 렌즈
+## What it does
 
-- 🌐 **Everyone** — 누구나 이해할 수 있는 해석 (비유, 사례 중심)
-- 💻 **Developers** — 개발자/엔지니어 관점 (기술 스택, 구현, 영향)
-- 🔬 **Researchers** — 연구자/심화 관점 (논문, 이론적 맥락, 열린 문제)
+Every morning at 8:00 KST, it collects top stories from Hacker News and GeekNews, selects 3 AI/tech-relevant articles via Gemini API, generates three-tier interpretations, and emails the result in Korean.
 
-## 비용
+- 🌐 **Everyone** — No jargon, everyday impact
+- 💻 **Developers** — Technical stacks, implementation implications
+- 🔬 **Researchers** — Academic context, open problems
 
-**0원.** Gemini 무료 API + GitHub Actions (public repo) + Gmail SMTP
+## How it works
 
-## 뉴스 소스
+```
+GitHub Actions (cron, daily)
+  → Hacker News API + GeekNews RSS
+  → Gemini API: select 3 AI/tech articles
+  → Gemini API: generate 3-lens interpretation per article
+  → Gmail SMTP: send to recipients
+```
 
-- [Hacker News](https://news.ycombinator.com/) — 글로벌 테크 뉴스
-- [GeekNews](https://news.hada.io/) — 한국 개발자 커뮤니티 뉴스
+## Tech stack
 
-## 기술 스택
+| Component | Choice                       | Why                                           |
+| --------- | ---------------------------- | --------------------------------------------- |
+| Scheduler | GitHub Actions cron          | Serverless, no infra to manage                |
+| AI Model  | Gemini 2.5 Flash (free tier) | 12 calls/day vs 250/day limit — room to scale |
+| Delivery  | Gmail SMTP                   | Universal, no app install needed              |
 
-| 구성      | 선택                | 이유                                              |
-| --------- | ------------------- | ------------------------------------------------- |
-| 스케줄러  | GitHub Actions cron | 서버리스, 무료, 별도 인프라 불필요                |
-| AI 모델   | Gemini 2.5 Flash    | 무료 티어 하루 250건으로 충분, 스케일업 경로 확보 |
-| 배포 채널 | Gmail SMTP          | 추가 앱 설치 없이 누구나 수신 가능                |
+Monthly cost: **$0**
 
-## 커스터마이징
+## Prompt engineering
 
-- `scripts/daily_news.py`에서 `NEWS_COUNT` 변경 → 뉴스 개수 조절
-- `.github/workflows/daily-news.yml`의 cron 값 수정 → 발송 시간 변경
-- `generate_trilens()` 함수의 프롬프트 수정 → 렌즈 변경/추가
+The prompt uses a research-backed structure ([Google's prompting guide](https://ai.google.dev/gemini-api/docs/prompting-strategies), [Anthropic's best practices](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering)):
 
-## 알려진 제한사항
+- **XML tags** to separate role, task, constraints, example, and output format
+- **One few-shot example** to anchor tone and structure
+- **Explicit constraints** — sentence count, banned patterns, no markdown syntax
 
-- **발송 시간이 정확하지 않음**: GitHub Actions cron은 정확한 시간을 보장하지 않습니다. 부하가 높은 시간대에는 5~30분 지연될 수 있으며, 이는 GitHub Actions의 구조적 한계입니다. ([GitHub 공식 문서 참고](https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#schedule))
+## Known limitations
+
+- **Cron timing is approximate**: GitHub Actions cron can delay 5–30 min under load. The job triggers at 7:30 KST to compensate.
+- **No link preview in email**: News URLs are plain text links; rendering depends on the email client.
+
+## Setup
+
+1. Get a [Gemini API key](https://aistudio.google.com/) (free, no credit card)
+2. Create a [Gmail App Password](https://myaccount.google.com/apppasswords)
+3. Fork this repo (keep it **public** for free Actions minutes)
+4. Add 4 secrets in Settings → Secrets → Actions:
+   - `GEMINI_API_KEY`
+   - `GMAIL_ADDRESS`
+   - `GMAIL_APP_PASSWORD`
+   - `RECIPIENTS` (comma-separated emails)
+5. Go to Actions tab → Run workflow → Check your inbox
