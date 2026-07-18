@@ -71,10 +71,10 @@ Monthly cost: **$0**
 
 ## 📈 Roadmap & Maintenance
 
-As of July 2026, this project is actively maintained to explore new LLM architectures and improve the delivery pipeline:
-- **Multi-Agent Cross-checking**: Planning to transition from a single-pass prompt to a multi-agent validation pipeline to minimize hallucination in technical news.
-- **Slack/Discord Webhooks**: Expanding delivery methods beyond SMTP for team-wide integration.
-- **Model Upgrades**: Continuously testing and migrating to the latest LLM APIs (e.g., GPT-4o, Gemini 2.5 Pro) for optimal cost-performance ratio.
+As of July 2026, this project is actively maintained to explore advanced LLM evaluation and data-centric pipelines:
+- **LLM-as-a-Judge Evaluation Pipeline**: Implementing an automated scoring system to evaluate the 'Faithfulness' and 'Readability' of the generated summaries before dispatch, ensuring output quality without human intervention.
+- **User Feedback Loop**: Integrating in-email telemetry (e.g., Thumbs Up/Down) backed by a lightweight DB (Supabase) to collect user satisfaction metrics. This data will establish a continuous prompt optimization cycle.
+- **Multi-Agent Cross-checking**: Planning to transition from a single-pass prompt to a multi-agent validation architecture to minimize hallucination in highly technical news.
 
 ## 📄 License
 
