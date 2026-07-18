@@ -1,8 +1,16 @@
 # Tri-Lens Daily News
+> An automated pipeline that delivers AI/tech news every morning, dynamically translated into three depth levels for different personas.
 
-An automated pipeline that delivers AI/tech news every morning, interpreted through three depth levels. In a field that moves daily, everyone needs to keep up — but not everyone needs the same depth. Tri-Lens serves the same article at three levels so each reader gets the insight that matters to them.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## What it does
+## 💡 Motivation (The Problem)
+
+- **Information Overload**: The AI and tech landscape moves too fast. Manually filtering daily updates across Hacker News and RSS feeds is extremely time-consuming.
+- **Context Mismatch**: Existing tech newsletters are "one-size-fits-all." They are either too superficial for developers/researchers or too jargon-heavy for the general public.
+
+To solve this, I built a zero-cost pipeline that curates the noise and uses LLMs to dynamically translate the *same* information into three distinct contexts.
+
+## 🎯 Solution (What it does)
 
 Every morning at 8:00 KST, it collects top stories from Hacker News and GeekNews, selects 3 AI/tech-relevant articles via Gemini API, generates three-tier interpretations, and emails the result in Korean.
 
@@ -10,40 +18,46 @@ Every morning at 8:00 KST, it collects top stories from Hacker News and GeekNews
 - 💻 **Developers** — Technical stacks, implementation implications
 - 🔬 **Researchers** — Academic context, open problems
 
-## How it works
+### 📩 Example Output
+*(Add screenshot or code block of the actual email here)*
 
+## 🏗️ Architecture & Data Flow
+
+```mermaid
+graph TD
+    A[GitHub Actions Cron] -->|Trigger 07:30 KST| B(Hacker News API & GeekNews RSS)
+    B -->|Raw Articles| C{Gemini API: Filter}
+    C -->|Top 3 Tech News| D{Gemini API: Tri-Lens Prompt}
+    D -->|3-Tier Interpretation| E[Gmail SMTP]
+    E -->|Delivery 08:00 KST| F(Subscribers)
 ```
-GitHub Actions (cron, daily)
-  → Hacker News API + GeekNews RSS
-  → Gemini API: select 3 AI/tech articles
-  → Gemini API: generate 3-lens interpretation per article
-  → Gmail SMTP: send to recipients
-```
 
-## Tech stack
+## 🛠️ Tech Stack & Decisions
 
-| Component | Choice                       | Why                                           |
-| --------- | ---------------------------- | --------------------------------------------- |
-| Scheduler | GitHub Actions cron          | Serverless, no infra to manage                |
-| AI Model  | Gemini 2.5 Flash (free tier) | 12 calls/day vs 250/day limit — room to scale |
-| Delivery  | Gmail SMTP                   | Universal, no app install needed              |
+| Component | Choice | Why this over alternatives? |
+| --------- | ------ | --------------------------- |
+| **Scheduler** | GitHub Actions cron | Serverless, zero maintenance, free for public repos. |
+| **AI Model** | Gemini 2.5 Flash | Free tier allows 15 RPM (sufficient for 3 articles/day), high context window. |
+| **Delivery** | Gmail SMTP | Universal protocol, requires zero app installation for end-users. |
 
 Monthly cost: **$0**
 
-## Prompt engineering
+## 🛠️ Prompt Engineering & Troubleshooting
 
-The prompt uses a research-backed structure ([Google's prompting guide](https://ai.google.dev/gemini-api/docs/prompting-strategies), [Anthropic's best practices](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering)):
+**Challenge:** Initial implementations suffered from the classic "LLM Preamble" issue (e.g., *"Sure, I will translate this news for you..."*) and generated markdown syntax that broke Gmail's HTML rendering.
 
-- **XML tags** to separate role, task, constraints, example, and output format
-- **One few-shot example** to anchor tone and structure
-- **Explicit constraints** — sentence count, banned patterns, no markdown syntax
+**Solution:** The prompt was completely refactored using a research-backed structure ([Google's prompting guide](https://ai.google.dev/gemini-api/docs/prompting-strategies), [Anthropic's best practices](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering)):
+- **XML tags**: Separated role, task, constraints, and output format to prevent context leakage.
+- **Few-shot anchoring**: Provided a strict 1-shot example to enforce the exact tone without greetings.
+- **Negative constraints**: Explicitly banned markdown, repetitive phrases, and strictly limited each lens to 2 sentences.
 
-## Known limitations
+## ⏱️ Infra Optimizations & Known Limitations
 
-- **Cron timing is approximate**: GitHub Actions cron can delay 5–30 min under load. The job triggers at 7:30 KST to compensate.
-- **No link preview in email**: News URLs are plain text links; rendering depends on the email client.
+- **Cron Timing Delay**: GitHub Actions cron can delay 5–30 minutes under heavy global load. To guarantee 8:00 AM KST delivery, the job trigger was proactively shifted to 7:30 AM KST (22:30 UTC).
+- **Duplicate News Filtering (Pending)**: Occasionally, different RSS sources report the exact same news. Deduplication logic is currently being researched for the next release.
+- **Email Link Preview**: News URLs are currently plain text links; rendering depends entirely on the email client's native behavior.
 
-## Setup
+## 🚀 Quick Start (Setup)
 
 1. Get a [Gemini API key](https://aistudio.google.com/) (free, no credit card)
 2. Create a [Gmail App Password](https://myaccount.google.com/apppasswords)
@@ -54,3 +68,14 @@ The prompt uses a research-backed structure ([Google's prompting guide](https://
    - `GMAIL_APP_PASSWORD`
    - `RECIPIENTS` (comma-separated emails)
 5. Go to Actions tab → Run workflow → Check your inbox
+
+## 📈 Roadmap & Maintenance
+
+As of July 2026, this project is actively maintained to explore new LLM architectures and improve the delivery pipeline:
+- **Multi-Agent Cross-checking**: Planning to transition from a single-pass prompt to a multi-agent validation pipeline to minimize hallucination in technical news.
+- **Slack/Discord Webhooks**: Expanding delivery methods beyond SMTP for team-wide integration.
+- **Model Upgrades**: Continuously testing and migrating to the latest LLM APIs (e.g., GPT-4o, Gemini 2.5 Pro) for optimal cost-performance ratio.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
