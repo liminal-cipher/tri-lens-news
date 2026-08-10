@@ -13,7 +13,7 @@ Filtering AI and tech news by hand across Hacker News and RSS feeds takes time e
 
 The observation behind this project is that the gap is usually not the news, it is the framing. The same story matters differently to a general reader, an engineer, and a researcher. So rather than pick different stories per audience, this pipeline picks the same three stories and rewrites each one three ways.
 
-## What it does
+## What It Does
 
 Every morning it collects the top stories from Hacker News and GeekNews, asks Gemini to pick the three most relevant to AI and software, generates a three-lens interpretation of each, and emails the result in Korean.
 
