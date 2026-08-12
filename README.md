@@ -59,7 +59,7 @@ The prompt was restructured around three techniques, following [Google's prompti
 
 ## Results & Limitations
 
-The pipeline ran for a stretch after 2026-04-06 at no cost. It is **not currently delivering**, and the more useful result is that nobody noticed when it stopped. That is the silent-failure gap below turning into an actual outage: with no alerting, an unattended job that quits looks exactly like an unattended job that works.
+The pipeline ran daily from 2026-04-02 to 2026-06-04 at no cost, 64 scheduled runs of which 60 were recorded as successful. It is **not currently delivering**, and the more useful result is that nobody noticed when it stopped. That is the silent-failure gap below turning into an actual outage: with no alerting, an unattended job that quits looks exactly like an unattended job that works. The success count carries the same caveat, because until recently a run that collected nothing and sent nothing would have been counted among them.
 
 Beyond cost, **nothing has been measured**: there is no record of run successes and failures, no evaluation of whether the interpretations are faithful to the articles, and no reader feedback. The prompt constraints are enforced by the prompt alone, so a violation would ship.
 
@@ -67,7 +67,7 @@ Known gaps, all present in the current code:
 
 - **Retries do not cover the model calls.** The retry-mounted session applies to news fetching only. `call_gemini` posts directly, so one transient 5xx from Gemini ends that morning's run.
 - **The selection response is parsed strictly.** The model is asked for JSON and the reply goes to `json.loads` with no fallback, so a malformed answer stops the run rather than degrading to a default pick.
-- **Failures are silent.** If fewer than three stories are collected the script returns without sending anything. There is no alert on any failure path, and the only signal is the Actions tab, which nobody opens while the mail appears to be arriving. This is the gap that let the pipeline stop unobserved.
+- **Failures are unannounced.** Collecting fewer than three stories now exits non-zero instead of returning quietly, so that path is at least recorded as a failed run. Nothing alerts on it. The only signal is the Actions tab, which nobody opens while the mail appears to be arriving, and this is the gap that let the pipeline stop unobserved.
 - **No deduplication.** Hacker News and GeekNews regularly carry the same story, and nothing prevents it being selected twice.
 - **Email HTML is unescaped.** Article titles and model output are interpolated straight into the template, so a title containing `<` or `&` renders wrong.
 - **Delivery time is approximate.** GitHub Actions cron can lag 5 to 30 minutes under load. Triggering at 07:30 KST to land near 08:00 is a mitigation, not a guarantee.
@@ -95,7 +95,7 @@ The limitations above set the order. Observability comes before measurement, and
 
 ## Status
 
-Not currently delivering. The scheduled run stopped at an unconfirmed point after 2026-04-06 and the interruption went unnoticed. The code is intact and the workflow can be re-enabled; alerting is the prerequisite for calling it running again. Last reviewed 2026-08-11.
+Not currently delivering. The last scheduled run was 2026-06-04, and GitHub disabled the workflow about sixty days later under its inactivity rule for scheduled jobs. That is a third shape of silent failure and the one that actually happened: there is no failed run to alert on, because there is no run at all, and a later commit does not re-enable the schedule. The code is intact and the workflow can be re-enabled by hand; alerting is the prerequisite for calling it running again. Last reviewed 2026-08-13.
 
 ## License
 
