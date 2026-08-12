@@ -3,7 +3,7 @@
 An automated pipeline that emails AI and tech news every morning, interpreted at three depths for three different readers.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-![Gemini](https://img.shields.io/badge/Gemini-2.5%20Flash-4285F4?logo=google&logoColor=white)
+![Gemini](https://img.shields.io/badge/Gemini-3.6%20Flash-4285F4?logo=google&logoColor=white)
 ![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-cron-2088FF?logo=githubactions&logoColor=white)
 ![Cost](https://img.shields.io/badge/Monthly%20cost-%240-success)
 
@@ -41,7 +41,7 @@ Four Gemini calls run per day: one to select, three to interpret. Everything liv
 | Component | Choice | Why this over alternatives |
 | --- | --- | --- |
 | Scheduler | GitHub Actions cron | Serverless with no instance to keep alive, and free on a public repo. The tradeoff is that the schedule is best-effort, which is handled below |
-| Model | Gemini 2.5 Flash | The free tier's 15 requests per minute covers four calls a day with room to spare, and the context window fits a full candidate list in one prompt |
+| Model | Gemini 3.6 Flash | Four calls a day sit far inside any free-tier allowance, and the context window fits a full candidate list in one prompt. Set the `GEMINI_MODEL` repository variable to override it without a commit, which is the escape hatch if a model leaves the free tier |
 | Delivery | Gmail SMTP | Email needs nothing installed and no account created. A web app or a bot would have put a step between the reader and the content |
 | Storage | None | The pipeline is stateless by design. Adding a database would be the first thing to break in an unattended job, and nothing today needs to persist |
 
@@ -82,7 +82,8 @@ Known gaps, all present in the current code:
    - `GMAIL_ADDRESS`
    - `GMAIL_APP_PASSWORD`
    - `RECIPIENTS` (comma-separated)
-5. Open the Actions tab, run the workflow manually, and check your inbox.
+5. Optionally set a `GEMINI_MODEL` repository variable under Settings, Variables, Actions to pin a different model. Leaving it unset uses the default in the script.
+6. Open the Actions tab, run the workflow manually, and check your inbox.
 
 ## Roadmap
 
