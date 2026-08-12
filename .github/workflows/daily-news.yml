@@ -27,4 +27,6 @@ jobs:
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           RECIPIENTS: ${{ secrets.RECIPIENTS }}
+          # 모델을 바꾸려면 repo variable GEMINI_MODEL을 설정한다. 비어 있으면 스크립트 기본값을 쓴다
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
         run: python scripts/daily_news.py
