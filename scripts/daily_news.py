@@ -8,6 +8,7 @@ Tri-Lens Daily News
 import os
 import json
 import smtplib
+import sys
 import time
 import requests
 import feedparser
@@ -243,8 +244,8 @@ def main():
     print(f"  HN {len(hn_stories)}개 + GN {len(gn_stories)}개")
 
     if len(all_stories) < 3:
-        print("뉴스를 충분히 가져오지 못했습니다. 종료.")
-        return
+        print("뉴스를 충분히 가져오지 못했습니다. 종료.", file=sys.stderr)
+        sys.exit(1)
 
     # 2. AI/테크 뉴스 선별
     print("AI/테크 뉴스 선별 중...")
