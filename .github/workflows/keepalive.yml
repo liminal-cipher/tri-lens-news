@@ -1,0 +1,33 @@
+name: Keepalive
+
+# GitHub는 리포지터리 활동이 60일간 없으면 스케줄 워크플로를 자동으로 비활성화한다.
+# 2026-06-04 이후 발송이 멈춘 원인이 이것이었다. 실패한 run이 없으므로 실패 알림으로는
+# 잡히지 않는다. 조용한 기간에만 빈 커밋을 밀어 60일 타이머를 되돌린다.
+
+on:
+  schedule:
+    # 매월 1일 03:00 UTC. 최대 31일 간격이므로 50일 임계값에 걸리기 전에 반드시 한 번 돈다
+    - cron: '0 3 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Push an empty commit if the repo has been quiet
+        run: |
+          days=$(( ( $(date +%s) - $(git log -1 --format=%ct) ) / 86400 ))
+          echo "last commit ${days} days ago"
+          if [ "$days" -lt 50 ]; then
+            echo "recent activity, nothing to do"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "chore(ci): keep the scheduled workflow enabled"
+          git push
