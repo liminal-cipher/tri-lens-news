@@ -221,3 +221,31 @@ unstyled paragraph knows something is off; a reader seeing nothing does not.
 **Revisit if.** The fallback starts appearing often enough to notice, which
 would mean the constraint check and the regeneration are not doing their job and
 the problem is upstream of the template.
+
+## 2026-08-13 The three lenses carry forward instead of standing apart
+
+**Context.** The constraint block required the lenses to differ in sentence
+structure, which follows from treating them as three audiences who each read
+only their own. There is one reader who reads all three in order. The first
+paper in the digest showed what that costs: the plain lens explained sampling an
+answer several times and taking the majority, and the next lens reintroduced the
+same idea as an untranslated term, so the reader met what they had just
+understood as something unfamiliar.
+
+**Decision.** A lens is written on top of the one above it and names in its own
+vocabulary what the previous lens described in plain words. Terms are written in
+English rather than transliterated, glossed once on first use, at most twice per
+lens, and only when the term cannot be guessed from outside the field.
+
+**Why.** A transliterated term cannot be looked up, which is the whole point
+when the reader is trying to learn the field. English first also keeps one term
+from appearing two ways in one message, which was happening. The gloss cap
+exists because the first version of the rule had none and produced two sentences
+carrying four parentheticals, including explanations of `weight` and `VRAM`.
+The worked example was rewritten alongside the rules, since it anchors the
+output more strongly than the rules do on their own.
+
+**Revisit if.** Papers stop being the item that needs the ramp, or the
+carry-forward starts reading as repetition rather than as a step up. Neither has
+a mechanical test: this was judged by reading one day's output before and after,
+on three items, which is an observation and not a measurement.

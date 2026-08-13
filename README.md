@@ -73,6 +73,8 @@ The prompt was restructured around three techniques, following [Google's prompti
 - **XML tags** separate role, task, constraints, and output format so instructions do not bleed into each other
 - **One-shot anchoring** with a full worked example fixes the tone and proves that the answer starts immediately, with no greeting
 - **Negative constraints** ban markdown, ban a list of filler phrases that kept recurring, and hold each lens to exactly two sentences
+- **Carry-forward between lenses** tells the model that one reader is going top to bottom, so a lens names the thing the lens above it described in plain words. Before this, an interpretation could explain majority voting over samples and then reintroduce it two lines later as an unglossed term, which is the exact moment a reader loses the thread
+- **Terms in English with a bounded gloss** because a transliteration cannot be searched, and the reader here is the one trying to learn the field. The first version of this rule glossed everything, including `weight` and `VRAM`, so it now names the case it is for and caps glosses at two per lens
 
 ## Results & Limitations
 
@@ -80,7 +82,7 @@ The pipeline ran daily from 2026-04-02 to 2026-06-04 at no cost, 64 scheduled ru
 
 Delivery resumed on 2026-08-13, verified by a manual run that collected 30 candidates, selected 3, and sent the mail in 1m20s.
 
-Beyond cost, **almost nothing has been measured**. The prompt constraints used to be enforced by the prompt alone, so a violation would ship; they are now checked before dispatch by rule rather than by judgment, at no API cost, and a violating interpretation is regenerated once with its violations fed back. The checks cover what the constraint block states literally: no preamble, all three lenses present and in order, exactly two sentences each, no markdown. One constraint stays unchecked, that the three lenses differ in sentence structure, because it has no mechanical test.
+Beyond cost, **almost nothing has been measured**. The prompt constraints used to be enforced by the prompt alone, so a violation would ship; they are now checked before dispatch by rule rather than by judgment, at no API cost, and a violating interpretation is regenerated once with its violations fed back. The checks cover what the constraint block states literally: no preamble, all three lenses present and in order, exactly two sentences each, no markdown. The rules added since, that a lens carries forward from the one above it and that glosses stay bounded, have no mechanical test and are enforced by the prompt alone. They were judged by reading the output before and after, which is not measurement.
 
 What went out is now kept. Every delivered digest is committed under [`archive/`](archive) from 2026-08-13 onward, which is the corpus a later scoring pass would need. Earlier days are unrecoverable, because they were never written down anywhere.
 
