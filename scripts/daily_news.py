@@ -416,6 +416,12 @@ def main():
     for name, items in counts.items():
         print(f"  {name} {len(items)}건")
 
+    # 소스 하나가 0건이어도 나머지로 메일이 나간다. 그 자체는 맞는 동작이지만, 아무 말도
+    # 없으면 소스가 영영 죽어도 알 길이 없다. 열 주 동안 몰랐던 장애와 같은 모양이다
+    dead = [name for name, items in counts.items() if not items]
+    if dead:
+        print(f"  ⚠ 0건인 소스: {', '.join(dead)}", file=sys.stderr)
+
     news = counts["Hacker News"] + counts["GeekNews"]
     papers = counts["Hugging Face Papers"]
 
