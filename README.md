@@ -36,6 +36,8 @@ graph TD
 
 Four Gemini calls run per day: one to select, three to interpret. Everything lives in a single script with no database and no server.
 
+Two support jobs sit alongside it. A failed run emails the sending account rather than the recipient list, so an outage reaches the maintainer and not the readers. A monthly keepalive pushes an empty commit if the repository has been quiet for 50 days, which is what stops GitHub from disabling the schedule for inactivity.
+
 ## Tech Decisions
 
 | Component | Choice | Why this over alternatives |
@@ -59,7 +61,9 @@ The prompt was restructured around three techniques, following [Google's prompti
 
 ## Results & Limitations
 
-The pipeline ran daily from 2026-04-02 to 2026-06-04 at no cost, 64 scheduled runs of which 60 were recorded as successful. It is **not currently delivering**, and the more useful result is that nobody noticed when it stopped. That is the silent-failure gap below turning into an actual outage: with no alerting, an unattended job that quits looks exactly like an unattended job that works. The success count carries the same caveat, because until recently a run that collected nothing and sent nothing would have been counted among them.
+The pipeline ran daily from 2026-04-02 to 2026-06-04 at no cost, 64 scheduled runs of which 60 were recorded as successful. It then sat dead for ten weeks, and the more useful result is that nobody noticed when it stopped. That is the silent-failure gap below turning into an actual outage: with no alerting, an unattended job that quits looks exactly like an unattended job that works. The success count carries the same caveat, because until recently a run that collected nothing and sent nothing would have been counted among them.
+
+Delivery resumed on 2026-08-13, verified by a manual run that collected 30 candidates, selected 3, and sent the mail in 1m20s.
 
 Beyond cost, **nothing has been measured**: there is no record of run successes and failures, no evaluation of whether the interpretations are faithful to the articles, and no reader feedback. The prompt constraints are enforced by the prompt alone, so a violation would ship.
 
@@ -67,7 +71,7 @@ Known gaps, all present in the current code:
 
 - **Retries do not cover the model calls.** The retry-mounted session applies to news fetching only. `call_gemini` posts directly, so one transient 5xx from Gemini ends that morning's run.
 - **The selection response is parsed strictly.** The model is asked for JSON and the reply goes to `json.loads` with no fallback, so a malformed answer stops the run rather than degrading to a default pick.
-- **Failures are unannounced.** Collecting fewer than three stories now exits non-zero instead of returning quietly, so that path is at least recorded as a failed run. Nothing alerts on it. The only signal is the Actions tab, which nobody opens while the mail appears to be arriving, and this is the gap that let the pipeline stop unobserved.
+- **Alerting covers failed runs, not absent ones.** A failed run emails the sending account, so a strict-parse error, a model error, or the fewer-than-three-stories exit surfaces the same morning. A run that never starts still announces nothing, because there is no job to send the alert from. The keepalive removes the one cause of that seen so far, but an Actions outage would pass unnoticed exactly as before.
 - **No deduplication.** Hacker News and GeekNews regularly carry the same story, and nothing prevents it being selected twice.
 - **Email HTML is unescaped.** Article titles and model output are interpolated straight into the template, so a title containing `<` or `&` renders wrong.
 - **Delivery time is approximate.** GitHub Actions cron can lag 5 to 30 minutes under load. Triggering at 07:30 KST to land near 08:00 is a mitigation, not a guarantee.
@@ -87,16 +91,15 @@ Known gaps, all present in the current code:
 
 ## Roadmap
 
-The limitations above set the order. Observability comes before measurement, and measurement before new capability, because a pipeline that can stop without telling anyone cannot support a claim about anything else.
+The limitations above set the order. Failure visibility is in place, so measurement is next, and measurement comes before new capability because a claim about the interpretations needs evidence rather than a prompt constraint.
 
-- **Failure visibility**: alert when a run fails or skips, so an outage surfaces the day it happens rather than whenever someone thinks to check.
 - **Evaluation before dispatch**: score each generated interpretation for faithfulness to the source article and for readability, and log the scores. This is what turns prompt changes into something with evidence behind them.
 - **Deduplication**: collapse the same story arriving from both sources before selection.
 - **Reader feedback**: a thumbs up or down in the email, stored somewhere light, to check whether the three-lens split is actually useful or just a nice idea.
 
 ## Status
 
-Not currently delivering. The last scheduled run was 2026-06-04, and GitHub disabled the workflow about sixty days later under its inactivity rule for scheduled jobs. That is a third shape of silent failure and the one that actually happened: there is no failed run to alert on, because there is no run at all, and a later commit does not re-enable the schedule. The code is intact and the workflow can be re-enabled by hand; alerting is the prerequisite for calling it running again. Last reviewed 2026-08-13.
+Delivering. Ran daily from 2026-04-02 to 2026-06-04, then stopped for ten weeks because GitHub disabled the workflow under its inactivity rule for scheduled jobs. That is a third shape of silent failure and the one that actually happened: there is no failed run to alert on, because there is no run at all. The schedule is enabled again, a manual run on 2026-08-13 delivered, and the keepalive job now covers the cause. Last reviewed 2026-08-13.
 
 ## License
 
