@@ -52,6 +52,7 @@ Two support jobs sit alongside it. A failed run emails the sending account rathe
 
 | Component | Choice | Why this over alternatives |
 | --- | --- | --- |
+| Sources | Hacker News · GeekNews · Hugging Face Daily Papers (over raw arXiv) | The first two carry no research, which left one of the three lenses with nothing to say. Raw arXiv returns several hundred papers a day in one category with nothing to rank them by, while the curated list is ordered by upvote and ships the abstract. The cost is that the paper feed is the least stable dependency here, being an undocumented endpoint rather than a published API |
 | Scheduler | GitHub Actions cron | Serverless with no instance to keep alive, and free on a public repo. The tradeoff is that the schedule is best-effort, which is handled below |
 | Model | Gemini 3.6 Flash | Four calls a day sit far inside any free-tier allowance, and the context window fits a full candidate list in one prompt. Set the `GEMINI_MODEL` repository variable to override it without a commit, which is the escape hatch if a model leaves the free tier |
 | Delivery | Gmail SMTP | Email needs nothing installed and no account created. A web app or a bot would have put a step between the reader and the content |

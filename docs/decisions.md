@@ -172,3 +172,52 @@ month is worse than last.
 **Revisit if.** The daily line stops being read, or a trend needs to be seen
 across months rather than reconstructed by opening files. Counting is the cheap
 half; nothing yet aggregates these lines or alerts on a rising number.
+
+## 2026-08-13 A paper joins the digest, from a curated list rather than arXiv
+
+**Context.** The two sources were never chosen. They were whatever came out of
+an early session, and neither carries research, so the Researchers lens had
+nothing real to work with and produced sentences that sounded like research
+about product launches. Measuring the sources for the first time also showed
+they are not independent: 4 of 15 Hacker News stories appeared in GeekNews the
+same day, one of them under an identical title.
+
+**Decision.** Add Hugging Face Daily Papers. The digest becomes two news items
+plus one paper, with the paper slot fixed. The paper is chosen by upvote rather
+than by a model call.
+
+**Why.** Five things were compared: what a source contributes, whether it
+overlaps the others, whether the article text comes with it, whether the daily
+volume is rankable, and how stable the interface is. Raw arXiv failed the fourth
+outright, returning 261 papers in one category in one day with no signal to
+order them. Hugging Face Daily Papers is human-curated, carries upvotes, and
+ships the abstract, which makes it the only candidate that also solves the
+article-text problem for its own slot. The slot is fixed because a paper title
+loses a relevance contest to a product headline every time, so leaving it to
+compete means never getting a paper. Upvotes replace a model call because the
+candidates are already ranked by people.
+
+**Revisit if.** `huggingface.co/api/daily_papers` changes shape or goes away. It
+is not a documented public contract, unlike the Hacker News Firebase API, and
+this is the least stable dependency in the pipeline. Also revisit if upvotes
+turn out to select for what is popular rather than what is worth reading, which
+the archive will eventually show.
+
+## 2026-08-13 A digest that fails its own check still renders readably
+
+**Context.** The mail template now draws each lens as its own labelled block,
+which requires the output to parse into three lenses. A violating interpretation
+is sent anyway, by an earlier decision, so the template has to handle output it
+cannot parse.
+
+**Decision.** Fall back to the previous plain rendering when the three lenses
+are not all present.
+
+**Why.** The alternative is a template that drops text it cannot categorise,
+which turns a formatting violation into missing content and quietly undoes the
+reason for sending a flawed digest in the first place. A reader seeing an
+unstyled paragraph knows something is off; a reader seeing nothing does not.
+
+**Revisit if.** The fallback starts appearing often enough to notice, which
+would mean the constraint check and the regeneration are not doing their job and
+the problem is upstream of the template.
