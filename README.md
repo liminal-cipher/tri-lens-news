@@ -69,7 +69,7 @@ Beyond cost, **nothing has been measured**: there is no record of run successes 
 
 Known gaps, all present in the current code:
 
-- **Retries do not cover the model calls.** The retry-mounted session applies to news fetching only. `call_gemini` posts directly, so one transient 5xx from Gemini ends that morning's run.
+- **Model calls retry on 5xx only.** `call_gemini` used to post directly, so a single transient 5xx ended that morning's run, which is what happened on 2026-08-13 when Gemini returned 503 on the first interpretation. It now goes through the retry session, which required adding POST to the retried methods because urllib3 leaves non-idempotent methods out by default. A 429 from an exhausted quota is still not retried and still ends the run.
 - **The selection response is parsed strictly.** The model is asked for JSON and the reply goes to `json.loads` with no fallback, so a malformed answer stops the run rather than degrading to a default pick.
 - **Alerting covers failed runs, not absent ones.** A failed run emails the sending account, so a strict-parse error, a model error, or the fewer-than-three-stories exit surfaces the same morning. A run that never starts still announces nothing, because there is no job to send the alert from. The keepalive removes the one cause of that seen so far, but an Actions outage would pass unnoticed exactly as before.
 - **No deduplication.** Hacker News and GeekNews regularly carry the same story, and nothing prevents it being selected twice.

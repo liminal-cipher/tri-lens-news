@@ -32,10 +32,19 @@ KST = timezone(timedelta(hours=9))
 
 # ── 뉴스 수집 ──
 
-def get_session():
+# urllib3가 기본으로 재시도하는 메서드. POST는 멱등하지 않아 여기 없다
+RETRY_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE", "PUT", "DELETE"})
+
+
+def get_session(retry_post=False):
     """재시도 로직이 포함된 requests 세션 생성"""
     session = requests.Session()
-    retries = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
+    retries = Retry(
+        total=3,
+        backoff_factor=1,
+        status_forcelist=[500, 502, 503, 504],
+        allowed_methods=(RETRY_METHODS | {"POST"}) if retry_post else RETRY_METHODS,
+    )
     session.mount("https://", HTTPAdapter(max_retries=retries))
     return session
 
@@ -91,7 +100,10 @@ def fetch_geeknews():
 
 def call_gemini(prompt):
     """Gemini API 호출 (공통 함수)"""
-    resp = requests.post(
+    # generateContent는 부수효과가 없으므로 POST여도 재시도해 안전하다.
+    # 재시도가 없던 동안 5xx 한 번에 그날 발송이 통째로 날아갔다
+    session = get_session(retry_post=True)
+    resp = session.post(
         GEMINI_URL,
         headers={"Content-Type": "application/json"},
         json={"contents": [{"parts": [{"text": prompt}]}]},
