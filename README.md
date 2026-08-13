@@ -50,6 +50,8 @@ Two support jobs sit alongside it. A failed run emails the sending account rathe
 | Alerting | A step in the same workflow (over a hosted monitor) | An external monitor is one more unattended account that can go quiet, which is the exact failure being guarded against. Reusing the SMTP secrets adds no new surface and no new service. The cost is that it cannot report a run that never starts, which is what the keepalive covers instead |
 | Validation | Rule checks (over an LLM judge) | The constraint block is stated literally enough to test mechanically, so a judge would add a call, a cost, and a second thing that can be wrong in exchange for a less reliable version of the same answer. A judge earns its place on faithfulness, which is blocked on the article text |
 
+Choices made from 2026-08-13 onward are recorded in full, with the conditions that should reopen them, in [docs/decisions.md](docs/decisions.md).
+
 Monthly cost is $0. Every component sits inside a free tier at this volume.
 
 ## Prompt Engineering
