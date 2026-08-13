@@ -1,6 +1,6 @@
 # Tri-Lens Daily News
 
-An automated pipeline that emails AI and tech news every morning, interpreted at three depths for three different readers.
+An automated pipeline that emails two AI news items and one paper every morning, each interpreted at three depths so a reader can climb from one to the next.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 ![Gemini](https://img.shields.io/badge/Gemini-3.6%20Flash-4285F4?logo=google&logoColor=white)
@@ -9,36 +9,44 @@ An automated pipeline that emails AI and tech news every morning, interpreted at
 
 ## Motivation
 
-Filtering AI and tech news by hand across Hacker News and RSS feeds takes time every single morning, and the newsletters that do it for you are written for one audience. They are either too shallow to tell a developer anything actionable or too dense for someone outside the field.
+I wanted to keep up with AI news and the papers behind it, and the papers were the part I could not do. Opening an abstract cold, without knowing which of its terms were the point and which were background, meant reading it twice and understanding it neither time. Summaries written for practitioners assume the context I was missing; summaries written for everyone leave out the part I was trying to reach.
 
-The observation behind this project is that the gap is usually not the news, it is the framing. The same story matters differently to a general reader, an engineer, and a researcher. So rather than pick different stories per audience, this pipeline picks the same three stories and rewrites each one three ways.
+So the three lenses are not three audiences. They are one reader climbing. **Everyone** says what happened in plain language, **Developers** says what it does mechanically, **Researchers** says what is still unsettled. Read in order, the first two are the run-up that makes the third readable. There is exactly one subscriber, and this is a tool built for them.
 
 ## What It Does
 
-Every morning it collects the top stories from Hacker News and GeekNews, asks Gemini to pick the three most relevant to AI and software, generates a three-lens interpretation of each, and emails the result in Korean.
+Every morning it collects candidates from Hacker News, GeekNews, and Hugging Face Daily Papers, then assembles a fixed digest of three items.
+
+- **Two news items**, chosen by Gemini from the news sources for relevance to AI and software
+- **One paper**, taken by upvote from the day's curated paper list
+
+Each item is rewritten through three lenses:
 
 - **Everyone** - everyday impact, no jargon
 - **Developers** - stacks, implementation consequences
 - **Researchers** - open problems and research direction
 
-Each lens is capped at two sentences, and the prompt requires the three to differ in sentence structure so the reader is not shown the same paragraph three times.
+The paper slot is fixed rather than left to compete, because a paper title never wins a relevance contest against a product headline, and the Researchers lens has nothing real to say about a product launch. Each lens is capped at two sentences.
 
 ## Architecture
 
 ```mermaid
 graph TD
     A[GitHub Actions cron] -->|22:30 UTC / 07:30 KST| B(Hacker News API + GeekNews RSS)
-    B -->|up to 30 candidates| C{Gemini: select 3}
-    C -->|3 articles| D{Gemini: tri-lens prompt, one call per article}
+    A --> P(Hugging Face Daily Papers)
+    B -->|up to 30 candidates| C{Gemini: select 2}
+    P -->|top 10 by upvote| Q[Take 1, no model call]
+    C --> D{Gemini: tri-lens prompt, one call per item}
+    Q --> D
     D -->|3-tier interpretation| V[Constraint check, one regeneration on violation]
     V --> E[Gmail SMTP]
-    E -->|delivered around 08:00 KST| F(Recipients)
+    E -->|delivered around 08:00 KST| F(Recipient)
     E --> G[archive/YYYY-MM-DD.md committed to the repo]
 ```
 
-Four Gemini calls run per day, one to select and three to interpret, plus one more for each interpretation that fails the constraint check. Everything lives in a single script with no database and no server.
+Four Gemini calls run per day, one to select the news and three to interpret, plus one more for each interpretation that fails the constraint check. The paper is chosen without a model call, since the candidates are already human-curated and carry upvotes. Everything lives in a single script with no database and no server.
 
-Two support jobs sit alongside it. A failed run emails the sending account rather than the recipient list, so an outage reaches the maintainer and not the readers. A monthly keepalive pushes an empty commit if the repository has been quiet for 50 days, which is what stops GitHub from disabling the schedule for inactivity. Delivered digests are committed daily under [`archive/`](archive), so in ordinary operation the keepalive never fires; it matters only when the pipeline has been broken long enough to stop committing on its own.
+Two support jobs sit alongside it. A failed run emails the sending account rather than the recipient list, which keeps the boundary in place for whenever that list holds someone other than the person who maintains this. A monthly keepalive pushes an empty commit if the repository has been quiet for 50 days, which is what stops GitHub from disabling the schedule for inactivity. Delivered digests are committed daily under [`archive/`](archive), so in ordinary operation the keepalive never fires; it matters only when the pipeline has been broken long enough to stop committing on its own.
 
 ## Tech Decisions
 
@@ -81,7 +89,7 @@ Everything else stands. There is no record of run successes and failures beyond 
 
 Known gaps, all present in the current code:
 
-- **The model never sees the article.** `generate_trilens` passes the title and the URL, and `generateContent` does not browse, so every interpretation is written from a headline. This is the largest gap in the project. It also blocks faithfulness scoring, because there is no source text in context for an interpretation to be measured against.
+- **The model sees the paper but not the news.** The paper arrives with its abstract, so that interpretation is written from the source. The two news items are still passed as a title and a URL, and `generateContent` does not browse, so those are written from a headline and whatever the model already believed about the subject. Faithfulness can be checked for one item in three and not for the other two.
 
 - **Model calls retry on 5xx only.** `call_gemini` used to post directly, so a single transient 5xx ended that morning's run, which is what happened on 2026-08-13 when Gemini returned 503 on the first interpretation. It now goes through the retry session, which required adding POST to the retried methods because urllib3 leaves non-idempotent methods out by default. A 429 from an exhausted quota is still not retried and still ends the run.
 - **The selection response is parsed strictly.** The model is asked for JSON and the reply goes to `json.loads` with no fallback, so a malformed answer stops the run rather than degrading to a default pick.
@@ -106,7 +114,7 @@ Known gaps, all present in the current code:
 
 The limitations above set the order. Failure visibility and constraint checking are in place, so what remains of measurement is the half that cannot be decided by rule, and that half starts with a prerequisite rather than a metric.
 
-- **Article text in context**: fetch the article body and pass it to the interpretation prompt. Everything today is written from a headline, which makes this both the largest quality gap and the prerequisite for the item below.
+- **News article text in context**: fetch the body of the two news items and pass it to the prompt, as the paper's abstract already is. Hacker News links to a different domain every day, so this means paywalls, bot blocks, and pages that render only in a browser. Measuring how often a usable body comes back comes before designing around it.
 - **Faithfulness scoring**: score each interpretation against its source and log the result. This needs a metric definition and the reason for it, a rubric, and a small human-labeled set to check the scorer against. None of those exist yet, and reporting a number before they do would be decoration.
 - **Deduplication**: collapse the same story arriving from both sources before selection.
 - **Reader feedback**: a thumbs up or down in the email, stored somewhere light, to check whether the three-lens split is actually useful or just a nice idea.
