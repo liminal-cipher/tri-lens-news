@@ -131,11 +131,17 @@ def select_ai_tech_news(stories):
     text = text.strip().removeprefix("```json").removesuffix("```").strip()
     selected = json.loads(text)
 
+    # 모델이 같은 번호를 두 번 주면 같은 기사가 두 번 실린다. 범위 밖 번호로 자리가 비는
+    # 경우도 있어서, 앞에서 3개를 자르지 않고 유효한 것만 3개 채울 때까지 훑는다
     result = []
-    for item in selected[:NEWS_COUNT]:
+    seen = set()
+    for item in selected:
         idx = item["index"] - 1
-        if 0 <= idx < len(stories):
+        if 0 <= idx < len(stories) and idx not in seen:
+            seen.add(idx)
             result.append(stories[idx])
+        if len(result) == NEWS_COUNT:
+            break
     return result
 
 
