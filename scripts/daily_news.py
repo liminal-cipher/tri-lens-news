@@ -279,6 +279,14 @@ def main():
     selected = select_ai_tech_news(all_stories)
     print(f"  선별: {len(selected)}개")
 
+    # 선별이 비면 헤더와 푸터만 든 메일이 나간다. 수집 단계와 같은 기준으로 여기서 멈춘다
+    if len(selected) < NEWS_COUNT:
+        print(
+            f"기사를 {NEWS_COUNT}개 선별하지 못했습니다 ({len(selected)}개). 종료.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     # 3. 3-렌즈 해석 생성
     print("3-렌즈 해석 생성 중...")
     sections = []
