@@ -28,7 +28,10 @@ RECIPIENTS = os.environ["RECIPIENTS"].split(",")  # 쉼표로 구분된 이메�
 # 미설정 변수는 빈 문자열로 넘어오므로 get의 기본값이 아니라 or로 받는다
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL") or "gemini-3.6-flash"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
-NEWS_COUNT = 3
+# 뉴스 2건 + 논문 1건. 논문 자리를 고정해두지 않으면 제목 경쟁에서 뉴스가 늘 이겨서
+# Researchers 렌즈에 줄 재료가 영영 안 들어온다
+NEWS_COUNT = 2
+PAPER_COUNT = 1
 KST = timezone(timedelta(hours=9))
 
 
@@ -110,6 +113,41 @@ def fetch_geeknews():
         return []
 
 
+def fetch_hf_papers(limit=10):
+    """Hugging Face Daily Papers (실패 시 빈 리스트 반환).
+
+    사람이 추려 올린 것만 모이고 추천수가 붙는다. arXiv 원본 피드는 한 카테고리에서만
+    하루 수백 편이 쏟아져 고를 근거가 없다.
+    초록이 함께 오므로 이 소스는 원문을 따로 가져올 필요가 없다
+    """
+    session = get_session()
+    try:
+        items = session.get(
+            "https://huggingface.co/api/daily_papers", timeout=20
+        ).json()
+    except Exception as e:
+        print(f"  ⚠ HF Papers 가져오기 실패: {e}")
+        return []
+
+    papers = []
+    for item in items:
+        paper = item.get("paper") or {}
+        title = (paper.get("title") or "").strip()
+        paper_id = paper.get("id") or ""
+        if not title or not paper_id:
+            continue
+        papers.append({
+            "title": title,
+            "url": f"https://arxiv.org/abs/{paper_id}",
+            "score": paper.get("upvotes") or 0,
+            "source": "Hugging Face Papers",
+            "body": (paper.get("summary") or "").strip(),
+        })
+
+    papers.sort(key=lambda p: p["score"], reverse=True)
+    return papers[:limit]
+
+
 # ── Gemini API ──
 
 # 호출별로 쓴 재시도 횟수. 하루치를 모아 로그와 아카이브에 남긴다
@@ -138,8 +176,17 @@ def call_gemini(prompt):
     return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
 
 
+def select_papers(papers):
+    """논문은 모델에 묻지 않고 추천수 상위로 고른다.
+
+    후보가 이미 사람 손으로 추려진 데다 추천수라는 신호가 붙어 있어서, 제목만 보고
+    고르는 모델 호출을 하나 더 얹을 이유가 없다
+    """
+    return papers[:PAPER_COUNT]
+
+
 def select_ai_tech_news(stories):
-    """AI/테크 관련 뉴스 3개 선별"""
+    """AI/테크 관련 뉴스 선별"""
     titles = "\n".join(
         [f"{i+1}. [{s['source']}] {s['title']}" for i, s in enumerate(stories)]
     )
@@ -147,15 +194,17 @@ def select_ai_tech_news(stories):
 
 {titles}
 
+같은 사건을 다룬 항목이 여러 개 있으면 그중 하나만 고르고 나머지는 버려라.
+
 반드시 아래 JSON 형식으로만 응답해. 다른 텍스트 없이 JSON만:
-[{{"index": 1}}, {{"index": 5}}, {{"index": 12}}]"""
+[{{"index": 1}}, {{"index": 5}}]"""
 
     text = call_gemini(prompt)
     text = text.strip().removeprefix("```json").removesuffix("```").strip()
     selected = json.loads(text)
 
     # 모델이 같은 번호를 두 번 주면 같은 기사가 두 번 실린다. 범위 밖 번호로 자리가 비는
-    # 경우도 있어서, 앞에서 3개를 자르지 않고 유효한 것만 3개 채울 때까지 훑는다
+    # 경우도 있어서, 앞에서 잘라내지 않고 유효한 것만 필요한 수만큼 채울 때까지 훑는다
     result = []
     seen = set()
     for item in selected:
@@ -173,6 +222,10 @@ def generate_trilens(article, violations=None):
 
     violations가 있으면 직전 출력이 어긴 제약을 프롬프트에 되먹여 재생성한다
     """
+    # 본문이 있으면 넣는다. 없으면 모델은 제목만 보고 쓰게 되고, 그건 해석이 아니라 추측이다
+    body = (article.get("body") or "").strip()
+    body_block = f"\n기사 본문:\n{body}" if body else ""
+
     retry_block = ""
     if violations:
         joined = "\n".join(f"- {v}" for v in violations)
@@ -190,7 +243,7 @@ def generate_trilens(article, violations=None):
 <task>
 아래 기사를 3단계 렌즈(Everyone, Developers, Researchers)로 해석하라.
 기사 제목: {article['title']}
-기사 URL: {article['url']}
+기사 URL: {article['url']}{body_block}
 </task>
 
 <constraints>
@@ -281,13 +334,17 @@ def build_html_email(date_str, sections):
 ARCHIVE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "archive")
 
 
-def run_stats(reports):
-    """그날 run이 어떻게 굴러갔는지 한 줄로 요약한다"""
+def run_stats(reports, counts, sections):
+    """그날 run이 어떻게 굴러갔는지 두 줄로 요약한다"""
     calls = len(gemini_retries)
     used = sum(gemini_retries)
     passed = sum(1 for r in reports if not r["violations"])
     regenerated = sum(1 for r in reports if r["regenerated"])
+    with_body = sum(1 for article, _ in sections if (article.get("body") or "").strip())
+    sourced = ", ".join(f"{name} {len(items)}건" for name, items in counts.items())
     return (
+        f"후보: {sourced}. "
+        f"본문 확보 {with_body}/{len(sections)}건.\n"
         f"Gemini 호출 {calls}건, 재시도 {used}회 (건당 예산 {RETRY_TOTAL}회). "
         f"검증 {passed}/{len(reports)} 통과, 재생성 {regenerated}건."
     )
@@ -349,26 +406,34 @@ def main():
     date_iso = now.strftime("%Y-%m-%d")
     print(f"=== Tri-Lens Daily News === {date_str}")
 
-    # 1. 뉴스 수집
+    # 1. 수집
     print("뉴스 수집 중...")
-    hn_stories = fetch_hackernews_top(15)
-    gn_stories = fetch_geeknews()
-    all_stories = hn_stories + gn_stories
-    print(f"  HN {len(hn_stories)}개 + GN {len(gn_stories)}개")
+    counts = {
+        "Hacker News": fetch_hackernews_top(15),
+        "GeekNews": fetch_geeknews(),
+        "Hugging Face Papers": fetch_hf_papers(),
+    }
+    for name, items in counts.items():
+        print(f"  {name} {len(items)}건")
 
-    if len(all_stories) < 3:
+    news = counts["Hacker News"] + counts["GeekNews"]
+    papers = counts["Hugging Face Papers"]
+
+    if len(news) < NEWS_COUNT:
         print("뉴스를 충분히 가져오지 못했습니다. 종료.", file=sys.stderr)
         sys.exit(1)
 
-    # 2. AI/테크 뉴스 선별
-    print("AI/테크 뉴스 선별 중...")
-    selected = select_ai_tech_news(all_stories)
-    print(f"  선별: {len(selected)}개")
+    # 2. 선별
+    print("선별 중...")
+    selected = select_ai_tech_news(news) + select_papers(papers)
+    for article in selected:
+        print(f"  [{article['source']}] {article['title'][:55]}")
 
     # 선별이 비면 헤더와 푸터만 든 메일이 나간다. 수집 단계와 같은 기준으로 여기서 멈춘다
-    if len(selected) < NEWS_COUNT:
+    wanted = NEWS_COUNT + PAPER_COUNT
+    if len(selected) < wanted:
         print(
-            f"기사를 {NEWS_COUNT}개 선별하지 못했습니다 ({len(selected)}개). 종료.",
+            f"기사를 {wanted}개 선별하지 못했습니다 ({len(selected)}개). 종료.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -410,7 +475,7 @@ def main():
     send_email(subject, html_body)
 
     # 6. 보낸 것만 남긴다. 발송이 실패한 날의 해석은 아무한테도 안 갔으므로 기록도 아니다
-    stats = run_stats(reports)
+    stats = run_stats(reports, counts, sections)
     print(stats)
     write_archive(date_iso, date_str, sections, stats)
     print("완료!")
