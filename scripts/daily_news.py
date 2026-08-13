@@ -253,6 +253,42 @@ def build_html_email(date_str, sections):
     return body
 
 
+# ── 아카이브 ──
+
+ARCHIVE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "archive")
+
+
+def write_archive(date_iso, date_str, sections):
+    """발송한 내용을 archive/YYYY-MM-DD.md 에 남긴다.
+
+    파이프라인이 만든 결과물은 지금까지 메일로만 나가고 아무 데도 남지 않았다.
+    나중에 해석 품질을 평가하려면 채점할 뭉치가 있어야 하고, 그 뭉치가 여기다
+    """
+    os.makedirs(ARCHIVE_DIR, exist_ok=True)
+    path = os.path.join(ARCHIVE_DIR, f"{date_iso}.md")
+
+    parts = [f"# {date_str}", ""]
+    for i, (article, analysis) in enumerate(sections):
+        parts += [
+            f"## {i+1}. {article['title']}",
+            "",
+            f"원문: <{article['url']}> ({article['source']})",
+            "",
+            analysis.strip(),
+            "",
+        ]
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(parts).rstrip() + "\n")
+    print(f"아카이브 기록 → archive/{date_iso}.md")
+
+    # 커밋 메시지에 쓰도록 날짜를 워크플로로 넘긴다
+    env_path = os.environ.get("GITHUB_ENV")
+    if env_path:
+        with open(env_path, "a", encoding="utf-8") as f:
+            f.write(f"ARCHIVE_DATE={date_iso}\n")
+
+
 def send_email(subject, html_body):
     """Gmail SMTP로 이메일 전송"""
     msg = MIMEMultipart("alternative")
@@ -272,6 +308,7 @@ def send_email(subject, html_body):
 def main():
     now = datetime.now(KST)
     date_str = now.strftime("%Y년 %m월 %d일")
+    date_iso = now.strftime("%Y-%m-%d")
     print(f"=== Tri-Lens Daily News === {date_str}")
 
     # 1. 뉴스 수집
@@ -333,6 +370,9 @@ def main():
     subject = f"☀️ Tri-Lens 모닝 뉴스 | {date_str}"
     html_body = build_html_email(date_str, sections)
     send_email(subject, html_body)
+
+    # 6. 보낸 것만 남긴다. 발송이 실패한 날의 해석은 아무한테도 안 갔으므로 기록도 아니다
+    write_archive(date_iso, date_str, sections)
     print("완료!")
 
 
