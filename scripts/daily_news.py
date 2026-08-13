@@ -36,19 +36,31 @@ KST = timezone(timedelta(hours=9))
 
 # urllib3가 기본으로 재시도하는 메서드. POST는 멱등하지 않아 여기 없다
 RETRY_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE", "PUT", "DELETE"})
+RETRY_TOTAL = 3
 
 
 def get_session(retry_post=False):
     """재시도 로직이 포함된 requests 세션 생성"""
     session = requests.Session()
     retries = Retry(
-        total=3,
+        total=RETRY_TOTAL,
         backoff_factor=1,
         status_forcelist=[500, 502, 503, 504],
         allowed_methods=(RETRY_METHODS | {"POST"}) if retry_post else RETRY_METHODS,
     )
     session.mount("https://", HTTPAdapter(max_retries=retries))
     return session
+
+
+def retries_used(resp):
+    """이 응답을 받기까지 쓴 재시도 횟수와 그때 받은 상태 코드.
+
+    재시도는 urllib3가 우리 코드 아래에서 조용히 처리하고 끝난 뒤 성공한 응답만
+    넘겨준다. 몇 번 걸렸는지는 응답에 붙어 오는 이력에만 남으므로, 여기서 꺼내지
+    않으면 간신히 성공한 날과 한 번에 성공한 날이 로그에서 구별되지 않는다
+    """
+    history = getattr(getattr(resp.raw, "retries", None), "history", None) or ()
+    return len(history), [h.status for h in history if h.status]
 
 
 def fetch_hackernews_top(limit=15):
@@ -100,6 +112,10 @@ def fetch_geeknews():
 
 # ── Gemini API ──
 
+# 호출별로 쓴 재시도 횟수. 하루치를 모아 로그와 아카이브에 남긴다
+gemini_retries = []
+
+
 def call_gemini(prompt):
     """Gemini API 호출 (공통 함수)"""
     # generateContent는 부수효과가 없으므로 POST여도 재시도해 안전하다.
@@ -111,6 +127,13 @@ def call_gemini(prompt):
         json={"contents": [{"parts": [{"text": prompt}]}]},
         timeout=60,
     )
+
+    used, codes = retries_used(resp)
+    gemini_retries.append(used)
+    if used:
+        seen = ", ".join(str(c) for c in codes) or "연결 오류"
+        print(f"      재시도 {used}/{RETRY_TOTAL}회 후 성공 (받은 응답: {seen})")
+
     resp.raise_for_status()
     return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
 
@@ -258,7 +281,19 @@ def build_html_email(date_str, sections):
 ARCHIVE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "archive")
 
 
-def write_archive(date_iso, date_str, sections):
+def run_stats(reports):
+    """그날 run이 어떻게 굴러갔는지 한 줄로 요약한다"""
+    calls = len(gemini_retries)
+    used = sum(gemini_retries)
+    passed = sum(1 for r in reports if not r["violations"])
+    regenerated = sum(1 for r in reports if r["regenerated"])
+    return (
+        f"Gemini 호출 {calls}건, 재시도 {used}회 (건당 예산 {RETRY_TOTAL}회). "
+        f"검증 {passed}/{len(reports)} 통과, 재생성 {regenerated}건."
+    )
+
+
+def write_archive(date_iso, date_str, sections, stats):
     """발송한 내용을 archive/YYYY-MM-DD.md 에 남긴다.
 
     파이프라인이 만든 결과물은 지금까지 메일로만 나가고 아무 데도 남지 않았다.
@@ -277,6 +312,9 @@ def write_archive(date_iso, date_str, sections):
             analysis.strip(),
             "",
         ]
+
+    # run 로그는 90일 뒤 사라진다. 그날 파이프라인이 어떤 상태였는지는 여기에만 영구히 남는다
+    parts += ["---", "", stats]
 
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(parts).rstrip() + "\n")
@@ -372,7 +410,9 @@ def main():
     send_email(subject, html_body)
 
     # 6. 보낸 것만 남긴다. 발송이 실패한 날의 해석은 아무한테도 안 갔으므로 기록도 아니다
-    write_archive(date_iso, date_str, sections)
+    stats = run_stats(reports)
+    print(stats)
+    write_archive(date_iso, date_str, sections, stats)
     print("완료!")
 
 
