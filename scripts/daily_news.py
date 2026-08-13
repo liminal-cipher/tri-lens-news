@@ -12,6 +12,7 @@ import sys
 import time
 import requests
 import feedparser
+import evaluate
 from datetime import datetime, timezone, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -137,8 +138,21 @@ def select_ai_tech_news(stories):
     return result
 
 
-def generate_trilens(article):
-    """하나의 기사에 대해 3-렌즈 해석 생성"""
+def generate_trilens(article, violations=None):
+    """하나의 기사에 대해 3-렌즈 해석 생성.
+
+    violations가 있으면 직전 출력이 어긴 제약을 프롬프트에 되먹여 재생성한다
+    """
+    retry_block = ""
+    if violations:
+        joined = "\n".join(f"- {v}" for v in violations)
+        retry_block = f"""
+
+<previous_attempt_errors>
+직전 출력이 아래 제약을 어겼다. 같은 실수를 반복하지 마라.
+{joined}
+</previous_attempt_errors>"""
+
     prompt = f"""<role>
 너는 AI/테크 뉴스 해석 봇이다.
 </role>
@@ -182,7 +196,7 @@ GPT-5의 추론 성능 향상이 단순 스케일링에서 비롯된 것인지 �
 
 🔬 Researchers
 (2문장)
-</output_format>"""
+</output_format>{retry_block}"""
 
     return call_gemini(prompt)
 
@@ -268,12 +282,34 @@ def main():
     # 3. 3-렌즈 해석 생성
     print("3-렌즈 해석 생성 중...")
     sections = []
+    reports = []
     for i, article in enumerate(selected):
         print(f"  [{i+1}/{len(selected)}] {article['title']}")
         analysis = generate_trilens(article)
+
+        # 제약 위반은 한 번만 되먹여 재생성한다. 그래도 어기면 기록하고 그대로 보낸다.
+        # 해석 하나가 규격에서 벗어난 것이 그날 메일을 통째로 거르는 것보다 낫다
+        violations = evaluate.check(analysis)
+        regenerated = bool(violations)
+        if violations:
+            print(f"      제약 위반 {len(violations)}건, 재생성: {'; '.join(violations)}")
+            analysis = generate_trilens(article, violations)
+            violations = evaluate.check(analysis)
+            if violations:
+                print(f"      재생성 후에도 위반: {'; '.join(violations)}")
+
+        reports.append({
+            "title": article["title"],
+            "violations": violations,
+            "regenerated": regenerated,
+            "fillers": evaluate.count_fillers(analysis),
+        })
         sections.append((article, analysis))
 
-    # 4. 이메일 발송
+    # 4. 발송 전 검증 결과 기록
+    evaluate.write_summary(reports)
+
+    # 5. 이메일 발송
     print("이메일 발송 중...")
     subject = f"☀️ Tri-Lens 모닝 뉴스 | {date_str}"
     html_body = build_html_email(date_str, sections)

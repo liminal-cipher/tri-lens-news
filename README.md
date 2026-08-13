@@ -30,11 +30,12 @@ graph TD
     A[GitHub Actions cron] -->|22:30 UTC / 07:30 KST| B(Hacker News API + GeekNews RSS)
     B -->|up to 30 candidates| C{Gemini: select 3}
     C -->|3 articles| D{Gemini: tri-lens prompt, one call per article}
-    D -->|3-tier interpretation| E[Gmail SMTP]
+    D -->|3-tier interpretation| V[Constraint check, one regeneration on violation]
+    V --> E[Gmail SMTP]
     E -->|delivered around 08:00 KST| F(Recipients)
 ```
 
-Four Gemini calls run per day: one to select, three to interpret. Everything lives in a single script with no database and no server.
+Four Gemini calls run per day, one to select and three to interpret, plus one more for each interpretation that fails the constraint check. Everything lives in a single script with no database and no server.
 
 Two support jobs sit alongside it. A failed run emails the sending account rather than the recipient list, so an outage reaches the maintainer and not the readers. A monthly keepalive pushes an empty commit if the repository has been quiet for 50 days, which is what stops GitHub from disabling the schedule for inactivity.
 
@@ -65,9 +66,13 @@ The pipeline ran daily from 2026-04-02 to 2026-06-04 at no cost, 64 scheduled ru
 
 Delivery resumed on 2026-08-13, verified by a manual run that collected 30 candidates, selected 3, and sent the mail in 1m20s.
 
-Beyond cost, **nothing has been measured**: there is no record of run successes and failures, no evaluation of whether the interpretations are faithful to the articles, and no reader feedback. The prompt constraints are enforced by the prompt alone, so a violation would ship.
+Beyond cost, **almost nothing has been measured**. The prompt constraints used to be enforced by the prompt alone, so a violation would ship; they are now checked before dispatch by rule rather than by judgment, at no API cost, and a violating interpretation is regenerated once with its violations fed back. The checks cover what the constraint block states literally: no preamble, all three lenses present and in order, exactly two sentences each, no markdown. One constraint stays unchecked, that the three lenses differ in sentence structure, because it has no mechanical test.
+
+Everything else stands. There is no record of run successes and failures beyond the Actions tab, no evaluation of whether the interpretations are faithful to the articles, and no reader feedback.
 
 Known gaps, all present in the current code:
+
+- **The model never sees the article.** `generate_trilens` passes the title and the URL, and `generateContent` does not browse, so every interpretation is written from a headline. This is the largest gap in the project. It also blocks faithfulness scoring, because there is no source text in context for an interpretation to be measured against.
 
 - **Model calls retry on 5xx only.** `call_gemini` used to post directly, so a single transient 5xx ended that morning's run, which is what happened on 2026-08-13 when Gemini returned 503 on the first interpretation. It now goes through the retry session, which required adding POST to the retried methods because urllib3 leaves non-idempotent methods out by default. A 429 from an exhausted quota is still not retried and still ends the run.
 - **The selection response is parsed strictly.** The model is asked for JSON and the reply goes to `json.loads` with no fallback, so a malformed answer stops the run rather than degrading to a default pick.
@@ -91,9 +96,10 @@ Known gaps, all present in the current code:
 
 ## Roadmap
 
-The limitations above set the order. Failure visibility is in place, so measurement is next, and measurement comes before new capability because a claim about the interpretations needs evidence rather than a prompt constraint.
+The limitations above set the order. Failure visibility and constraint checking are in place, so what remains of measurement is the half that cannot be decided by rule, and that half starts with a prerequisite rather than a metric.
 
-- **Evaluation before dispatch**: score each generated interpretation for faithfulness to the source article and for readability, and log the scores. This is what turns prompt changes into something with evidence behind them.
+- **Article text in context**: fetch the article body and pass it to the interpretation prompt. Everything today is written from a headline, which makes this both the largest quality gap and the prerequisite for the item below.
+- **Faithfulness scoring**: score each interpretation against its source and log the result. This needs a metric definition and the reason for it, a rubric, and a small human-labeled set to check the scorer against. None of those exist yet, and reporting a number before they do would be decoration.
 - **Deduplication**: collapse the same story arriving from both sources before selection.
 - **Reader feedback**: a thumbs up or down in the email, stored somewhere light, to check whether the three-lens split is actually useful or just a nice idea.
 
