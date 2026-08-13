@@ -6,6 +6,7 @@ Tri-Lens Daily News
 """
 
 import os
+import html
 import json
 import smtplib
 import sys
@@ -207,17 +208,21 @@ def build_html_email(date_str, sections):
     """HTML 이메일 본문 생성"""
     articles_html = ""
     for i, (article, analysis) in enumerate(sections):
-        # 줄바꿈을 <br>로, 렌즈 이모지를 볼드 처리
-        analysis_html = analysis.replace("\n", "<br>")
+        # 제목도 모델 출력도 그대로 신뢰할 수 없다. 이스케이프를 먼저 하고 줄바꿈을 <br>로
+        # 바꾼다. 순서가 뒤바뀌면 방금 넣은 <br>까지 이스케이프된다
+        analysis_html = html.escape(analysis).replace("\n", "<br>")
+        title = html.escape(article["title"])
+        url = html.escape(article["url"])
+        source = html.escape(article["source"])
 
         articles_html += f"""
         <div style="margin-bottom:32px; padding:20px; background:#f8f9fa; border-radius:8px;">
             <h3 style="margin:0 0 8px 0; color:#1a1a1a;">
-                {i+1}. {article['title']}
+                {i+1}. {title}
             </h3>
             <p style="margin:0 0 16px 0;">
-                <a href="{article['url']}" style="color:#0066cc; font-size:14px;">
-                    원문 보기 ({article['source']})
+                <a href="{url}" style="color:#0066cc; font-size:14px;">
+                    원문 보기 ({source})
                 </a>
             </p>
             <div style="font-size:15px; line-height:1.7; color:#333;">
@@ -225,7 +230,7 @@ def build_html_email(date_str, sections):
             </div>
         </div>"""
 
-    html = f"""
+    body = f"""
     <div style="max-width:640px; margin:0 auto; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
         <div style="padding:24px 0; border-bottom:3px solid #1a1a1a; margin-bottom:24px;">
             <h1 style="margin:0; font-size:24px;">☀️ Tri-Lens 모닝 뉴스</h1>
@@ -239,7 +244,7 @@ def build_html_email(date_str, sections):
             매일 아침 자동 발송됩니다.
         </div>
     </div>"""
-    return html
+    return body
 
 
 def send_email(subject, html_body):
