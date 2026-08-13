@@ -7,6 +7,9 @@ on:
     - cron: '30 22 * * *'
   workflow_dispatch: # Manual trigger for testing
 
+permissions:
+  contents: write # 발송분 아카이브를 커밋한다
+
 jobs:
   send-news:
     runs-on: ubuntu-latest
@@ -30,6 +33,21 @@ jobs:
           # 모델을 바꾸려면 repo variable GEMINI_MODEL을 설정한다. 비어 있으면 스크립트 기본값을 쓴다
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
         run: python scripts/daily_news.py
+
+      # 알림 스텝보다 앞에 둔다. 커밋이나 push가 실패해도 그 자체로 알림이 나가야 한다
+      - name: Commit the archived digest
+        run: |
+          if [ -z "$(git status --porcelain archive/)" ]; then
+            echo "아카이브에 변경 없음"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add archive/
+          git commit -m "chore(archive): ${ARCHIVE_DATE}"
+          # 사람이 같은 시간에 밀어 넣었을 수 있다. 되감고 올린다
+          git pull --rebase origin main
+          git push origin HEAD:main
 
       # 실패한 run에서만 실행된다. 알림은 RECIPIENTS가 아니라 발신 계정 자신에게 간다
       - name: Report a failed run
