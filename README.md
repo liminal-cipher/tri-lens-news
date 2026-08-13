@@ -118,7 +118,7 @@ Known gaps, all present in the current code:
 The limitations above set the order. Failure visibility and constraint checking are in place, so what remains of measurement is the half that cannot be decided by rule, and that half starts with a prerequisite rather than a metric.
 
 - **News article text in context**: fetch the body of the two news items and pass it to the prompt, as the paper's abstract already is. Hacker News links to a different domain every day, so this means paywalls, bot blocks, and pages that render only in a browser. Measuring how often a usable body comes back comes before designing around it.
-- **Faithfulness scoring**: score each interpretation against its source and log the result. This needs a metric definition and the reason for it, a rubric, and a small human-labeled set to check the scorer against. None of those exist yet, and reporting a number before they do would be decoration.
+- **Faithfulness scoring**: score each interpretation against its source and log the result. The metric, the rubric, the labelling procedure, and the agreement threshold a judge has to clear before its numbers are reported are written down in [docs/evaluation.md](docs/evaluation.md). Nothing has been labelled yet; the archive that supplies the sample started on 2026-08-13.
 - **Deduplication**: collapse the same story arriving from both sources before selection.
 - **Reader feedback**: a thumbs up or down in the email, stored somewhere light, to check whether the three-lens split is actually useful or just a nice idea.
 
