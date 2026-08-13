@@ -149,3 +149,26 @@ weeks, which is exactly when the archive commits stop too.
 a question arrives that needs querying across days rather than reading one. A
 few kilobytes a day takes years to reach either, so this is a note for a future
 reader rather than an expected event.
+
+## 2026-08-13 Retry counts are recorded, not just retry failures
+
+**Context.** urllib3 handles retries below the application and hands back only
+the final outcome. A call that succeeded on its third attempt produced the same
+return value and the same log lines as one that succeeded on its first, so the
+only trace was an unexplained jump in run time. Alerting covers a call that
+exhausts its retries, which is the end state, not the approach to it.
+
+**Decision.** Read the retry history urllib3 attaches to each response, print
+the count when it is non-zero, and write the daily total into the archive file
+alongside the validation counts.
+
+**Why.** The budget is three attempts per call. Spending two of them every
+morning is the difference between a pipeline that is fine and one that fails on
+the first slightly worse day, and nothing distinguished those two states. The
+count goes into the archive as well as the log because Actions drops logs after
+90 days, so the log alone answers what happened yesterday but not whether this
+month is worse than last.
+
+**Revisit if.** The daily line stops being read, or a trend needs to be seen
+across months rather than reconstructed by opening files. Counting is the cheap
+half; nothing yet aggregates these lines or alerts on a rising number.
