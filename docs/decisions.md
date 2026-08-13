@@ -117,3 +117,8 @@ silently absorbed.
 **Revisit if.** A violation degrades a mail badly enough that a reader notices,
 or regeneration succeeds so rarely that the extra call buys nothing. The
 per-run counts written to the job summary are what would show either.
+
+**Boundary.** This covers a malformed interpretation, not a missing one. If
+selection yields fewer than three articles the run exits non-zero instead,
+because the alternative is a mail carrying a header, a footer, and nothing
+between them, which is worse for a reader than no mail at all.
