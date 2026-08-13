@@ -85,6 +85,11 @@ def count_fillers(analysis):
     return {p: analysis.count(p) for p in FILLER_PATTERNS if analysis.count(p)}
 
 
+def _cell(text):
+    """마크다운 표 칸. 제목에 든 파이프가 열을 늘리지 않게 막는다"""
+    return text.replace("|", "\\|")
+
+
 def write_summary(reports):
     """run 로그와 Actions job summary에 검증 결과를 남긴다"""
     passed = sum(1 for r in reports if not r["violations"])
@@ -109,7 +114,8 @@ def write_summary(reports):
         result = "통과" if not r["violations"] else "; ".join(r["violations"])
         fillers = ", ".join(f"{k} {v}" for k, v in r["fillers"].items()) or "-"
         lines.append(
-            f"| {r['title'][:60]} | {result} | {'예' if r['regenerated'] else '아니오'} | {fillers} |"
+            f"| {_cell(r['title'][:60])} | {_cell(result)} |"
+            f" {'예' if r['regenerated'] else '아니오'} | {fillers} |"
         )
     with open(path, "a", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
