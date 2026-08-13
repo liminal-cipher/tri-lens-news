@@ -13,6 +13,7 @@ import sys
 import time
 import requests
 import feedparser
+import trafilatura
 import evaluate
 from datetime import datetime, timezone, timedelta
 from email.mime.text import MIMEText
@@ -33,6 +34,13 @@ GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_M
 NEWS_COUNT = 2
 PAPER_COUNT = 1
 KST = timezone(timedelta(hours=9))
+
+# 자기를 밝히는 UA. 기본 python-requests UA는 위키백과 등에서 403이 나고, Chrome을 사칭하는
+# 것보다 무엇이 왜 긁는지 알리는 쪽이 맞다
+USER_AGENT = "tri-lens-news/1.0 (+https://github.com/liminal-cipher/tri-lens-news)"
+# 30건을 재보니 중앙값 3120자, 최대 27409자였다. 긴 쪽은 잘라야 요점이 묻히지 않는다
+MAX_BODY_CHARS = 6000
+MIN_BODY_CHARS = 500
 
 
 # ── 뉴스 수집 ──
@@ -111,6 +119,36 @@ def fetch_geeknews():
     except Exception as e:
         print(f"  ⚠ GeekNews 가져오기 실패: {e}")
         return []
+
+
+def fetch_article_body(url):
+    """기사 원문에서 본문 텍스트를 뽑는다. 실패하면 빈 문자열.
+
+    선별이 끝난 뒤 2건만 가져온다. 후보 30건을 미리 다 가져와 본문이 있는 것 위주로
+    고르면 봇을 막는 사이트의 기사가 조용히 빠지는데, 그건 편집 방침을 기술 사정으로
+    바꾸는 것이다
+    """
+    try:
+        resp = requests.get(
+            url, timeout=20, headers={"User-Agent": USER_AGENT}, allow_redirects=True
+        )
+        if resp.status_code != 200:
+            print(f"      본문 실패: HTTP {resp.status_code}")
+            return ""
+        if "html" not in (resp.headers.get("Content-Type") or ""):
+            print("      본문 실패: HTML이 아님")
+            return ""
+        text = (trafilatura.extract(resp.text) or "").strip()
+    except Exception as e:
+        print(f"      본문 실패: {type(e).__name__}")
+        return ""
+
+    if len(text) < MIN_BODY_CHARS:
+        print(f"      본문 실패: 너무 짧음 ({len(text)}자)")
+        return ""
+    if len(text) > MAX_BODY_CHARS:
+        text = text[:MAX_BODY_CHARS]
+    return text
 
 
 def fetch_hf_papers(limit=10):
@@ -483,7 +521,15 @@ def main():
         )
         sys.exit(1)
 
-    # 3. 3-렌즈 해석 생성
+    # 3. 뉴스 원문 본문 확보. 논문은 초록이 이미 붙어 있다
+    print("원문 가져오는 중...")
+    for article in selected:
+        if article.get("body"):
+            continue
+        print(f"  {article['title'][:50]}")
+        article["body"] = fetch_article_body(article["url"])
+
+    # 4. 3-렌즈 해석 생성
     print("3-렌즈 해석 생성 중...")
     sections = []
     reports = []
@@ -510,16 +556,16 @@ def main():
         })
         sections.append((article, analysis))
 
-    # 4. 발송 전 검증 결과 기록
+    # 5. 발송 전 검증 결과 기록
     evaluate.write_summary(reports)
 
-    # 5. 이메일 발송
+    # 6. 이메일 발송
     print("이메일 발송 중...")
     subject = f"☀️ Tri-Lens 모닝 뉴스 | {date_str}"
     html_body = build_html_email(date_str, sections)
     send_email(subject, html_body)
 
-    # 6. 보낸 것만 남긴다. 발송이 실패한 날의 해석은 아무한테도 안 갔으므로 기록도 아니다
+    # 7. 보낸 것만 남긴다. 발송이 실패한 날의 해석은 아무한테도 안 갔으므로 기록도 아니다
     stats = run_stats(reports, counts, sections)
     print(stats)
     write_archive(date_iso, date_str, sections, stats)
