@@ -61,8 +61,13 @@ def check(analysis):
         violations.append("렌즈 순서가 다르다")
 
     for marker in LENS_MARKERS:
-        body = bodies.get(marker)
+        if marker not in bodies:
+            continue  # 누락은 위에서 이미 잡았다
+        body = bodies[marker]
+        # 머리말만 있고 본문이 없는 출력을 통과시키지 않는다. 빈 문자열을 falsy로 걸러내면
+        # 0문장으로 세는 게 아니라 검사 자체를 건너뛰어 빈 해석이 그대로 발송된다
         if not body:
+            violations.append(f"{LENS_NAMES[marker]} 본문이 비었다")
             continue
         count = len(SENTENCE_END.findall(body))
         if count != SENTENCES_PER_LENS:
