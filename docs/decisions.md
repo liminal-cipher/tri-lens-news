@@ -122,3 +122,30 @@ per-run counts written to the job summary are what would show either.
 selection yields fewer than three articles the run exits non-zero instead,
 because the alternative is a mail carrying a header, a footer, and nothing
 between them, which is worse for a reader than no mail at all.
+
+## 2026-08-13 Delivered digests are committed to the repo as markdown
+
+**Context.** The interpretations went out by mail and were kept nowhere. There
+was no way to answer what was sent last week, and no corpus for the faithfulness
+scoring the roadmap calls for. The options were a database, an external store,
+or files in the repo, against a stated design of holding no state at all.
+
+**Decision.** After a successful send, write `archive/YYYY-MM-DD.md` and commit
+it from the workflow. Only delivered digests are written.
+
+**Why.** What needs to persist is text, written once a day, read rarely, and
+never queried, so a database would buy nothing that a file does not. It would
+also add a service to keep alive in a project whose defining failure was an
+unattended thing going quiet. Committing only what was delivered keeps the
+archive a record of what readers actually received rather than of what the
+model happened to produce.
+
+**Consequence worth naming.** A daily commit resets the 60-day inactivity timer
+on its own, so the keepalive job now sleeps through ordinary operation. It is
+kept rather than removed, because the case it guards is a pipeline broken for
+weeks, which is exactly when the archive commits stop too.
+
+**Revisit if.** The repository grows large enough that cloning it is a chore, or
+a question arrives that needs querying across days rather than reading one. A
+few kilobytes a day takes years to reach either, so this is a note for a future
+reader rather than an expected event.

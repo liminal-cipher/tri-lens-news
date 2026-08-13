@@ -33,11 +33,12 @@ graph TD
     D -->|3-tier interpretation| V[Constraint check, one regeneration on violation]
     V --> E[Gmail SMTP]
     E -->|delivered around 08:00 KST| F(Recipients)
+    E --> G[archive/YYYY-MM-DD.md committed to the repo]
 ```
 
 Four Gemini calls run per day, one to select and three to interpret, plus one more for each interpretation that fails the constraint check. Everything lives in a single script with no database and no server.
 
-Two support jobs sit alongside it. A failed run emails the sending account rather than the recipient list, so an outage reaches the maintainer and not the readers. A monthly keepalive pushes an empty commit if the repository has been quiet for 50 days, which is what stops GitHub from disabling the schedule for inactivity.
+Two support jobs sit alongside it. A failed run emails the sending account rather than the recipient list, so an outage reaches the maintainer and not the readers. A monthly keepalive pushes an empty commit if the repository has been quiet for 50 days, which is what stops GitHub from disabling the schedule for inactivity. Delivered digests are committed daily under [`archive/`](archive), so in ordinary operation the keepalive never fires; it matters only when the pipeline has been broken long enough to stop committing on its own.
 
 ## Tech Decisions
 
@@ -46,7 +47,7 @@ Two support jobs sit alongside it. A failed run emails the sending account rathe
 | Scheduler | GitHub Actions cron | Serverless with no instance to keep alive, and free on a public repo. The tradeoff is that the schedule is best-effort, which is handled below |
 | Model | Gemini 3.6 Flash | Four calls a day sit far inside any free-tier allowance, and the context window fits a full candidate list in one prompt. Set the `GEMINI_MODEL` repository variable to override it without a commit, which is the escape hatch if a model leaves the free tier |
 | Delivery | Gmail SMTP | Email needs nothing installed and no account created. A web app or a bot would have put a step between the reader and the content |
-| Storage | None | The pipeline is stateless by design. Adding a database would be the first thing to break in an unattended job, and nothing today needs to persist |
+| Storage | Markdown files in the repo (over a database) | What needs to persist is the digest that was sent, which is text, read rarely, and never queried. A database would add a service to keep alive in a project whose defining failure was something going quiet unattended. The cost is a commit per delivered day and a repository that grows, slowly, forever |
 | Alerting | A step in the same workflow (over a hosted monitor) | An external monitor is one more unattended account that can go quiet, which is the exact failure being guarded against. Reusing the SMTP secrets adds no new surface and no new service. The cost is that it cannot report a run that never starts, which is what the keepalive covers instead |
 | Validation | Rule checks (over an LLM judge) | The constraint block is stated literally enough to test mechanically, so a judge would add a call, a cost, and a second thing that can be wrong in exchange for a less reliable version of the same answer. A judge earns its place on faithfulness, which is blocked on the article text |
 
@@ -72,7 +73,9 @@ Delivery resumed on 2026-08-13, verified by a manual run that collected 30 candi
 
 Beyond cost, **almost nothing has been measured**. The prompt constraints used to be enforced by the prompt alone, so a violation would ship; they are now checked before dispatch by rule rather than by judgment, at no API cost, and a violating interpretation is regenerated once with its violations fed back. The checks cover what the constraint block states literally: no preamble, all three lenses present and in order, exactly two sentences each, no markdown. One constraint stays unchecked, that the three lenses differ in sentence structure, because it has no mechanical test.
 
-Everything else stands. There is no record of run successes and failures beyond the Actions tab, no evaluation of whether the interpretations are faithful to the articles, and no reader feedback.
+What went out is now kept. Every delivered digest is committed under [`archive/`](archive) from 2026-08-13 onward, which is the corpus a later scoring pass would need. Earlier days are unrecoverable, because they were never written down anywhere.
+
+Everything else stands. There is no record of run successes and failures beyond the Actions tab, which drops its logs after 90 days, no evaluation of whether the interpretations are faithful to the articles, and no reader feedback.
 
 Known gaps, all present in the current code:
 
