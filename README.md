@@ -92,9 +92,9 @@ Everything else stands. There is no record of run successes and failures beyond 
 
 Known gaps, all present in the current code:
 
-- **The model sees the paper but not the news.** The paper arrives with its abstract, so that interpretation is written from the source. The two news items are still passed as a title and a URL, and `generateContent` does not browse, so those are written from a headline and whatever the model already believed about the subject. Faithfulness can be checked for one item in three and not for the other two.
+- **The model now sees the news body, and how often that works is not yet a number.** The two news items are fetched and passed as extracted article text, as the paper's abstract already was, so all three interpretations can in principle be checked against a source rather than one in three. The fetch first ran end to end on 2026-08-14: of four attempts that day three returned a usable body, and the fourth extracted zero characters from a Hacker News link. Four attempts on one day is not a rate, and the linked domain changes daily, so the count at the foot of each archived digest is the thing to watch before designing around it.
 
-- **Model calls retry on 5xx only.** `call_gemini` used to post directly, so a single transient 5xx ended that morning's run, which is what happened on 2026-08-13 when Gemini returned 503 on the first interpretation. It now goes through the retry session, which required adding POST to the retried methods because urllib3 leaves non-idempotent methods out by default. A 429 from an exhausted quota is still not retried and still ends the run.
+- **Model calls retry on 5xx only.** `call_gemini` used to post directly, so a single transient 5xx ended that morning's run, which is what happened on 2026-08-13 when Gemini returned 503 on the first interpretation. It now goes through the retry session, which required adding POST to the retried methods because urllib3 leaves non-idempotent methods out by default. A 429 from an exhausted quota is still not retried and still ends the run, which is what ended the scheduled run on 2026-08-14. Failed calls now log the response body, because the raised error carries the status and the URL while the name of the exhausted quota sits in the body, and without it a per-minute limit and a daily one look identical in the log.
 - **The selection response is parsed strictly.** The model is asked for JSON and the reply goes to `json.loads` with no fallback, so a malformed answer stops the run rather than degrading to a default pick.
 - **Alerting covers failed runs, not absent ones.** A failed run emails the sending account, so a strict-parse error, a model error, or the fewer-than-three-stories exit surfaces the same morning. A run that never starts still announces nothing, because there is no job to send the alert from. The keepalive removes the one cause of that seen so far, but an Actions outage would pass unnoticed exactly as before.
 - **No cross-source deduplication.** Hacker News and GeekNews regularly carry the same story under different titles, and nothing detects that they are the same. Selecting one list position twice is prevented, but two positions pointing at the same underlying story are not.
@@ -115,16 +115,15 @@ Known gaps, all present in the current code:
 
 ## Roadmap
 
-The limitations above set the order. Failure visibility and constraint checking are in place, so what remains of measurement is the half that cannot be decided by rule, and that half starts with a prerequisite rather than a metric.
+The limitations above set the order. Failure visibility, constraint checking, and article text in context are in place, so what remains of measurement is the half that cannot be decided by rule. Its prerequisite is met: there is now a source to check each of the three interpretations against.
 
-- **News article text in context**: fetch the body of the two news items and pass it to the prompt, as the paper's abstract already is. Hacker News links to a different domain every day, so this means paywalls, bot blocks, and pages that render only in a browser. Measuring how often a usable body comes back comes before designing around it.
 - **Faithfulness scoring**: score each interpretation against its source and log the result. The metric, the rubric, the labelling procedure, and the agreement threshold a judge has to clear before its numbers are reported are written down in [docs/evaluation.md](docs/evaluation.md). Nothing has been labelled yet; the archive that supplies the sample started on 2026-08-13.
 - **Deduplication**: collapse the same story arriving from both sources before selection.
 - **Reader feedback**: a thumbs up or down in the email, stored somewhere light, to check whether the three-lens split is actually useful or just a nice idea.
 
 ## Status
 
-Delivering. Ran daily from 2026-04-02 to 2026-06-04, then stopped for ten weeks because GitHub disabled the workflow under its inactivity rule for scheduled jobs. That is a third shape of silent failure and the one that actually happened: there is no failed run to alert on, because there is no run at all. The schedule is enabled again, a manual run on 2026-08-13 delivered, and the keepalive job now covers the cause. Last reviewed 2026-08-13.
+Delivering. Ran daily from 2026-04-02 to 2026-06-04, then stopped for ten weeks because GitHub disabled the workflow under its inactivity rule for scheduled jobs. That is a third shape of silent failure and the one that actually happened: there is no failed run to alert on, because there is no run at all. The schedule is enabled again and the keepalive job now covers the cause. The scheduled run on 2026-08-14 ended on a 429 at its first interpretation, and a manual run eight hours later delivered. Which quota was exhausted is not known, since the run before it had made one successful call and the error body was being discarded at the time. Last reviewed 2026-08-14.
 
 ## License
 
