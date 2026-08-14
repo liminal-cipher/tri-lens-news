@@ -1,7 +1,7 @@
 """
 Tri-Lens Daily News
 - Hacker News + GeekNews에서 AI/테크 뉴스 상위 기사를 가져옴
-- Gemini API로 3가지 렌즈(Everyone/Developers/Researchers)로 해석
+- 언어 모델로 3가지 렌즈(Everyone/Developers/Researchers)로 해석
 - Gmail SMTP로 이메일 전송
 """
 
@@ -22,13 +22,14 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 # ── 설정 ──
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 GMAIL_ADDRESS = os.environ["GMAIL_ADDRESS"]
 GMAIL_APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
 RECIPIENTS = os.environ["RECIPIENTS"].split(",")  # 쉼표로 구분된 이메일 목록
-# 미설정 변수는 빈 문자열로 넘어오므로 get의 기본값이 아니라 or로 받는다
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL") or "gemini-3.6-flash"
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+# 미설정 변수는 빈 문자열로 넘어오므로 get의 기본값이 아니라 or로 받는다.
+# 모델 API 키는 여기서 읽지 않는다. 실제로 부르는 프로바이더의 것만 확인한다 (_require_key)
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER") or "gemini"
+# GEMINI_MODEL은 이전 이름이다. 이미 repo variable로 설정돼 있을 수 있어 계속 읽는다
+LLM_MODEL = os.environ.get("LLM_MODEL") or os.environ.get("GEMINI_MODEL")
 # 뉴스 2건 + 논문 1건. 논문 자리를 고정해두지 않으면 제목 경쟁에서 뉴스가 늘 이겨서
 # Researchers 렌즈에 줄 재료가 영영 안 들어온다
 NEWS_COUNT = 2
@@ -186,26 +187,95 @@ def fetch_hf_papers(limit=10):
     return papers[:limit]
 
 
-# ── Gemini API ──
+# ── 모델 프로바이더 ──
 
-# 호출별로 쓴 재시도 횟수. 하루치를 모아 로그와 아카이브에 남긴다
-gemini_retries = []
+# 프로바이더마다 다른 것은 주소·헤더·보내는 모양·받는 모양 넷뿐이다. 아래 표에 한 항목을
+# 더하면 호출하는 쪽 코드는 손대지 않아도 된다
 
 
-def call_gemini(prompt):
-    """Gemini API 호출 (공통 함수)"""
-    # generateContent는 부수효과가 없으므로 POST여도 재시도해 안전하다.
-    # 재시도가 없던 동안 5xx 한 번에 그날 발송이 통째로 날아갔다
-    session = get_session(retry_post=True)
-    resp = session.post(
-        GEMINI_URL,
-        headers={"Content-Type": "application/json"},
-        json={"contents": [{"parts": [{"text": prompt}]}]},
-        timeout=60,
+def _require_key(name):
+    """실제로 부르는 프로바이더의 키만 확인한다.
+
+    모듈 최상단에서 전부 확인하면, Groq을 쓰지 않는 정기 실행이 GROQ_API_KEY가 없다는
+    이유로 import 시점에 죽는다
+    """
+    key = os.environ.get(name)
+    if not key:
+        raise RuntimeError(f"{name}가 설정되지 않았다. 이 프로바이더를 쓰려면 필요하다")
+    return key
+
+
+def _gemini(model, prompt):
+    """Gemini. 키를 URL 쿼리가 아니라 헤더로 보낸다.
+
+    requests가 던지는 예외 메시지와 재시도 로그에는 URL이 통째로 들어간다. 키를 거기
+    두면 실패할 때마다 따라 나가므로, 마스킹에 기대는 대신 헤더로 옮긴다
+    """
+    return (
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+        {"Content-Type": "application/json", "x-goog-api-key": _require_key("GEMINI_API_KEY")},
+        {"contents": [{"parts": [{"text": prompt}]}]},
     )
 
+
+def _openai_compatible(base, key_name):
+    """Groq·OpenRouter 등이 공유하는 모양. 주소와 키 이름만 다르다"""
+
+    def build(model, prompt):
+        return (
+            f"{base}/chat/completions",
+            {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {_require_key(key_name)}",
+            },
+            {"model": model, "messages": [{"role": "user", "content": prompt}]},
+        )
+
+    return build
+
+
+PROVIDERS = {
+    # 이름: (요청 만들기, 응답에서 본문 꺼내기, 기본 모델)
+    "gemini": (
+        _gemini,
+        lambda d: d["candidates"][0]["content"]["parts"][0]["text"],
+        "gemini-3.6-flash",
+    ),
+    "groq": (
+        _openai_compatible("https://api.groq.com/openai/v1", "GROQ_API_KEY"),
+        lambda d: d["choices"][0]["message"]["content"],
+        # 한 번 실행이 7~9K 토큰이라 TPM 8K인 gpt-oss-120b는 가끔 넘긴다
+        "llama-3.3-70b-versatile",
+    ),
+}
+
+# 호출별로 쓴 재시도 횟수. 하루치를 모아 로그와 아카이브에 남긴다
+model_retries = []
+# 그날 실제로 부른 모델. failover나 비교 실행으로 섞이면 아카이브에 그대로 남아야
+# 나중에 채점할 때 서로 다른 모델의 출력이 한 표본으로 뭉치지 않는다
+models_used = []
+
+
+def call_model(prompt, provider=None, model=None):
+    """모델 호출. 프로바이더가 갈리는 자리는 여기 하나뿐이다"""
+    provider = provider or LLM_PROVIDER
+    if provider not in PROVIDERS:
+        known = ", ".join(PROVIDERS)
+        raise RuntimeError(f"모르는 프로바이더: {provider} (아는 것: {known})")
+    build, extract, fallback = PROVIDERS[provider]
+    # provider만 넘기고 model을 비우면 그 프로바이더의 기본값을 쓴다. 환경변수 쪽 모델은
+    # 기본 프로바이더에만 해당한다. 안 그러면 groq에 gemini 모델 이름이 넘어간다
+    model = model or (LLM_MODEL if provider == LLM_PROVIDER else None) or fallback
+    url, headers, body = build(model, prompt)
+
+    # 생성 호출은 부수효과가 없으므로 POST여도 재시도해 안전하다.
+    # 재시도가 없던 동안 5xx 한 번에 그날 발송이 통째로 날아갔다
+    session = get_session(retry_post=True)
+    resp = session.post(url, headers=headers, json=body, timeout=60)
+
     used, codes = retries_used(resp)
-    gemini_retries.append(used)
+    model_retries.append(used)
+    models_used.append(f"{provider}:{model}")
     if used:
         seen = ", ".join(str(c) for c in codes) or "연결 오류"
         print(f"      재시도 {used}/{RETRY_TOTAL}회 후 성공 (받은 응답: {seen})")
@@ -213,14 +283,14 @@ def call_gemini(prompt):
     # 어떤 한도에 걸렸는지는 응답 본문에만 적혀 있다. raise_for_status가 던지는 메시지에는
     # 상태 코드와 URL뿐이라, 여기서 찍지 않으면 분당인지 하루치인지 토큰 한도인지 모른 채로
     # 추측하게 된다. 실제로 429를 두 번 맞고도 어느 한도인지 못 가렸다.
-    # 본문에 키는 없다. 키는 URL에만 있고 그쪽은 Actions가 가려준다
+    # 본문에 키는 없다. 키는 헤더에만 있고 헤더는 찍지 않는다
     if not resp.ok:
         # 429 본문은 QuotaFailure와 RetryInfo가 붙어 400대보다 길다. 짧게 자르면
         # 정작 필요한 quota 이름이 잘려나간다
         print(f"      HTTP {resp.status_code}: {resp.text[:2000]}", file=sys.stderr)
 
     resp.raise_for_status()
-    return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+    return extract(resp.json())
 
 
 def select_papers(papers):
@@ -246,7 +316,7 @@ def select_ai_tech_news(stories):
 반드시 아래 JSON 형식으로만 응답해. 다른 텍스트 없이 JSON만:
 [{{"index": 1}}, {{"index": 5}}]"""
 
-    text = call_gemini(prompt)
+    text = call_model(prompt)
     text = text.strip().removeprefix("```json").removesuffix("```").strip()
     selected = json.loads(text)
 
@@ -336,7 +406,7 @@ test-time compute(답을 만드는 시점에 연산을 더 쓰는 것)를 늘린
 (2문장)
 </output_format>{retry_block}"""
 
-    return call_gemini(prompt)
+    return call_model(prompt)
 
 
 # ── 이메일 전송 ──
@@ -425,8 +495,10 @@ ARCHIVE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 
 def run_stats(reports, counts, sections):
     """그날 run이 어떻게 굴러갔는지 두 줄로 요약한다"""
-    calls = len(gemini_retries)
-    used = sum(gemini_retries)
+    calls = len(model_retries)
+    used = sum(model_retries)
+    # 하루에 한 모델만 쓰면 이름 하나, 섞이면 쓴 순서대로 전부 적는다
+    models = ", ".join(dict.fromkeys(models_used)) or "-"
     passed = sum(1 for r in reports if not r["violations"])
     regenerated = sum(1 for r in reports if r["regenerated"])
     with_body = sum(1 for article, _ in sections if (article.get("body") or "").strip())
@@ -434,7 +506,7 @@ def run_stats(reports, counts, sections):
     return (
         f"후보: {sourced}. "
         f"본문 확보 {with_body}/{len(sections)}건.\n"
-        f"Gemini 호출 {calls}건, 재시도 {used}회 (건당 예산 {RETRY_TOTAL}회). "
+        f"{models} 호출 {calls}건, 재시도 {used}회 (건당 예산 {RETRY_TOTAL}회). "
         f"검증 {passed}/{len(reports)} 통과, 재생성 {regenerated}건."
     )
 
