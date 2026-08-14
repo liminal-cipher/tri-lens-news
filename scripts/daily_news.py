@@ -251,8 +251,9 @@ PROVIDERS = {
 
 # 호출별로 쓴 재시도 횟수. 하루치를 모아 로그와 아카이브에 남긴다
 model_retries = []
-# 그날 실제로 부른 모델. failover나 비교 실행으로 섞이면 아카이브에 그대로 남아야
-# 나중에 채점할 때 서로 다른 모델의 출력이 한 표본으로 뭉치지 않는다
+# 그날 실제로 부른 모델. 지금은 한 실행에 하나뿐이지만, 모델을 갈아끼운 날이
+# 아카이브에서 구별되지 않으면 나중에 채점할 때 서로 다른 모델의 출력이 한 표본으로
+# 뭉친다. 비교 실행처럼 한 실행에 여럿이 섞이는 경우도 그대로 남는다
 models_used = []
 
 
@@ -262,10 +263,10 @@ def call_model(prompt, provider=None, model=None):
     if provider not in PROVIDERS:
         known = ", ".join(PROVIDERS)
         raise RuntimeError(f"모르는 프로바이더: {provider} (아는 것: {known})")
-    build, extract, fallback = PROVIDERS[provider]
+    build, extract, default_model = PROVIDERS[provider]
     # provider만 넘기고 model을 비우면 그 프로바이더의 기본값을 쓴다. 환경변수 쪽 모델은
     # 기본 프로바이더에만 해당한다. 안 그러면 groq에 gemini 모델 이름이 넘어간다
-    model = model or (LLM_MODEL if provider == LLM_PROVIDER else None) or fallback
+    model = model or (LLM_MODEL if provider == LLM_PROVIDER else None) or default_model
     url, headers, body = build(model, prompt)
 
     # 생성 호출은 부수효과가 없으므로 POST여도 재시도해 안전하다.
@@ -471,6 +472,10 @@ def build_html_email(date_str, sections):
     # 받은편지함 목록에 제목 옆으로 보이는 미리보기 문구
     preview = html.escape(" · ".join(a["title"] for a, _ in sections))
 
+    # 푸터에 벤더 이름을 박아두면 모델을 바꾼 날부터 조용히 거짓이 된다. 그날 실제로
+    # 부른 모델을 읽어서 쓴다. 프로바이더 접두사는 독자에게 의미가 없어 떼고 이름만 남긴다
+    used = ", ".join(dict.fromkeys(m.split(":", 1)[-1] for m in models_used)) or "언어 모델"
+
     body = f"""
     <div style="display:none;max-height:0;overflow:hidden;opacity:0;">{preview}</div>
     <div style="max-width:640px;margin:0 auto;padding:8px;font-family:{FONT_STACK};">
@@ -482,7 +487,7 @@ def build_html_email(date_str, sections):
         </div>
         {articles_html}
         <div style="padding:16px 0 8px 0;border-top:1px solid #e1e4e8;color:#8c959f;font-size:12px;line-height:1.6;">
-            Gemini API + GitHub Actions로 매일 아침 자동 발송됩니다.
+            {html.escape(used)} + GitHub Actions로 매일 아침 자동 발송됩니다.
         </div>
     </div>"""
     return body
