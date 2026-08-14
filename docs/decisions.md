@@ -249,3 +249,33 @@ output more strongly than the rules do on their own.
 carry-forward starts reading as repetition rather than as a step up. Neither has
 a mechanical test: this was judged by reading one day's output before and after,
 on three items, which is an observation and not a measurement.
+
+## 2026-08-14 The carry-forward happens without announcing itself
+
+**Context.** The previous entry said to revisit if the carry-forward started
+reading as repetition rather than as a step up. It did. Across the two archived
+days, all twelve Developers and Researchers lenses opened by pointing at the
+lens above: `앞서 언급한`, `앞의 두 관점에서 다룬`, `방금 다룬`, `이러한`. The
+opening had become a fixed slot rather than a sentence. The worked example was
+the cause, not the rules: its Developers lens began `앞에서 말한 ... 방식이`,
+and the model copies the example more faithfully than it follows the constraints.
+
+**Decision.** Keep the ladder, drop the narration. A later lens still names what
+an earlier one described in plain words, but it does so by using the term rather
+than by referring back to where the term came from. Pointing phrases are banned
+from the start of a lens, the worked example was rewritten to demonstrate the
+silent version, and `evaluate.check` now rejects a lens that opens with one.
+
+**Why.** Two things were bundled together and only one of them was working. The
+structure is what makes three lenses a ramp instead of three summaries, and it
+is worth keeping. The announcement adds nothing, because the text being pointed
+at sits three lines above and the reader has just read it. Removing it also
+makes each lens readable on its own, which the ladder framing had been quietly
+trading away. Unlike the rule it replaces, this one has a mechanical test: the
+check is a literal string match on the first characters of a lens, so it costs
+no call and cannot drift. Run against both archived days it flagged 12 of 12
+lenses, and the rewritten example passes clean.
+
+**Revisit if.** Regeneration starts firing on most items, which would mean the
+prompt is not carrying the rule and the ban is being enforced after the fact
+rather than before it. The cost is one extra call per violating item.
