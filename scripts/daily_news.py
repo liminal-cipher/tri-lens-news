@@ -210,6 +210,13 @@ def call_gemini(prompt):
         seen = ", ".join(str(c) for c in codes) or "연결 오류"
         print(f"      재시도 {used}/{RETRY_TOTAL}회 후 성공 (받은 응답: {seen})")
 
+    # 어떤 한도에 걸렸는지는 응답 본문에만 적혀 있다. raise_for_status가 던지는 메시지에는
+    # 상태 코드와 URL뿐이라, 여기서 찍지 않으면 분당인지 하루치인지 토큰 한도인지 모른 채로
+    # 추측하게 된다. 실제로 429를 두 번 맞고도 어느 한도인지 못 가렸다.
+    # 본문에 키는 없다. 키는 URL에만 있고 그쪽은 Actions가 가려준다
+    if not resp.ok:
+        print(f"      HTTP {resp.status_code}: {resp.text[:600]}", file=sys.stderr)
+
     resp.raise_for_status()
     return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
 
