@@ -2,8 +2,8 @@
 발송 전 검증
 - 생성된 3-렌즈 해석이 프롬프트 제약을 지켰는지 확인한다
 - LLM 판정이 아니라 결정적 규칙이다. 호출 비용이 0이고 같은 입력에 같은 결과가 나온다
-- 원문 대조(faithfulness)는 여기서 하지 않는다. 파이프라인이 모델에 제목만 넘기므로
-  대조할 본문이 애초에 없다
+- 원문 대조(faithfulness)는 여기서 하지 않는다. 본문은 이제 프롬프트에 들어가지만,
+  충실한지는 규칙으로 갈리지 않고 판단이 필요하다. docs/evaluation.md 참고
 """
 
 import os
@@ -18,6 +18,13 @@ MARKDOWN_MARKERS = ("**", "##", "```")
 
 # 프롬프트가 반복을 금지한 표현. 한 번 쓰인 것은 위반이 아니므로 개수만 세어 기록한다
 FILLER_PATTERNS = ("마치", "덕분에", "될 것입니다")
+
+# 앞 칸을 가리키며 시작하는 표현. 계단 구조 자체는 지키되 그것을 소리 내어 알리지 않는
+# 것이 규칙이므로, 글 전체가 아니라 렌즈가 시작하는 자리만 본다. 한가운데 쓰인 "이러한"은
+# 평범한 한국어이고 걸 이유가 없다
+BACKREF_OPENERS = (
+    "앞서", "앞의", "앞에서", "방금", "이러한", "위에서", "이전에", "앞 칸",
+)
 
 # 마침표 뒤에 공백이나 문장 끝이 와야 문장 경계로 센다. "0.739" 같은 소수는 걸리지 않는다
 SENTENCE_END = re.compile(r"[.!?](?=\s|$)")
@@ -72,6 +79,10 @@ def check(analysis):
         count = len(SENTENCE_END.findall(body))
         if count != SENTENCES_PER_LENS:
             violations.append(f"{LENS_NAMES[marker]} {count}문장 (2문장이어야 함)")
+
+        opener = next((o for o in BACKREF_OPENERS if body.startswith(o)), None)
+        if opener:
+            violations.append(f"{LENS_NAMES[marker]} 앞 칸을 가리키며 시작한다 (\"{opener}\")")
 
     found = [m for m in MARKDOWN_MARKERS if m in text]
     if found:
