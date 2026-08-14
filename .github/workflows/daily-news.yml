@@ -27,10 +27,15 @@ jobs:
       - name: Fetch news and send email
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # 미설정 시크릿은 빈 문자열로 온다. 쓰지 않는 프로바이더의 키는 없어도 된다
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           RECIPIENTS: ${{ secrets.RECIPIENTS }}
-          # 모델을 바꾸려면 repo variable GEMINI_MODEL을 설정한다. 비어 있으면 스크립트 기본값을 쓴다
+          # 프로바이더와 모델은 repo variable로 커밋 없이 바꾼다. 둘 다 비면 스크립트 기본값
+          LLM_PROVIDER: ${{ vars.LLM_PROVIDER }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          # 예전 이름. LLM_MODEL이 비어 있을 때만 쓰인다
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
         run: python scripts/daily_news.py
 

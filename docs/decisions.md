@@ -279,3 +279,38 @@ lenses, and the rewritten example passes clean.
 **Revisit if.** Regeneration starts firing on most items, which would mean the
 prompt is not carrying the rule and the ban is being enforced after the fact
 rather than before it. The cost is one extra call per violating item.
+
+## 2026-08-15 One table holds everything a provider does differently
+
+**Context.** Choosing a model for the daily job means comparing candidates, and
+comparing them means running the same prompt through two of them. That was not
+possible. `GEMINI_URL` was an f-string evaluated at import, so the model was
+fixed for the life of the process and a comparison meant a separate run per
+model, by which time the day's candidate stories had changed. Vendor knowledge
+sat in four places inside one function: the address, the auth, the request
+shape, and the path into the response.
+
+**Decision.** A `PROVIDERS` table maps a name to the three things that vary:
+a function building the request, a function pulling text out of the response,
+and a default model. `call_model(prompt, provider=None, model=None)` reads the
+table; the two call sites pass a prompt and nothing else. `LLM_PROVIDER` and
+`LLM_MODEL` repository variables pick the default pair without a commit.
+`GEMINI_MODEL` is still read when `LLM_MODEL` is empty, so the variable already
+set in the repository keeps working. Provider keys are checked when a provider
+is actually called rather than at import, and Gemini's key moved from the URL
+query to the `x-goog-api-key` header.
+
+**Why.** The bake-off needs two models answering the same prompt in one process,
+and no arrangement of environment variables gets there while the URL is built
+once at import. Naming the varying parts also shows how small they are: adding
+an OpenAI-compatible provider is one line in the table, because Groq and
+OpenRouter share a shape that a single builder covers. Checking keys lazily
+keeps a provider nobody uses from ending the run, which an eager
+`os.environ["GROQ_API_KEY"]` would have done every morning. Moving the key to a
+header takes it out of the URL, which is the part of a failed request that ends
+up in exception messages and retry logs.
+
+**Revisit if.** A provider needs something the three-value shape cannot express,
+such as streaming, a different retry policy, or system messages as a separate
+field. The table is deliberately thin, and the first provider that does not fit
+is the signal to widen it rather than to bend the caller around it.
