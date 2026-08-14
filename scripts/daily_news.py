@@ -215,7 +215,9 @@ def call_gemini(prompt):
     # 추측하게 된다. 실제로 429를 두 번 맞고도 어느 한도인지 못 가렸다.
     # 본문에 키는 없다. 키는 URL에만 있고 그쪽은 Actions가 가려준다
     if not resp.ok:
-        print(f"      HTTP {resp.status_code}: {resp.text[:600]}", file=sys.stderr)
+        # 429 본문은 QuotaFailure와 RetryInfo가 붙어 400대보다 길다. 짧게 자르면
+        # 정작 필요한 quota 이름이 잘려나간다
+        print(f"      HTTP {resp.status_code}: {resp.text[:2000]}", file=sys.stderr)
 
     resp.raise_for_status()
     return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
