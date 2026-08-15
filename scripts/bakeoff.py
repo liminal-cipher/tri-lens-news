@@ -72,12 +72,20 @@ def freeze(path):
         print(f"  {name} {len(items)}건")
 
     news = counts["Hacker News"] + counts["GeekNews"]
+    papers = counts["Hugging Face Papers"]
+
+    # 정기 실행과 같은 기준으로 최근에 나간 기사를 뺀다. 안 그러면 며칠에 걸쳐 얼린
+    # 입력들이 같은 기사로 채워져서 표본이 늘어도 다양해지지 않는다
+    covered = dn.recently_covered()
+    news = dn.prefer_fresh(news, covered, dn.NEWS_COUNT, "뉴스")
+    papers = dn.prefer_fresh(papers, covered, dn.PAPER_COUNT, "논문")
+
     if len(news) < dn.NEWS_COUNT:
         print("뉴스를 충분히 가져오지 못했습니다. 종료.", file=sys.stderr)
         sys.exit(1)
 
     print("선별 중...")
-    selected = dn.select_ai_tech_news(news) + dn.select_papers(counts["Hugging Face Papers"])
+    selected = dn.select_ai_tech_news(news, covered) + dn.select_papers(papers)
     wanted = dn.NEWS_COUNT + dn.PAPER_COUNT
     if len(selected) < wanted:
         print(f"기사를 {wanted}개 선별하지 못했습니다 ({len(selected)}개). 종료.", file=sys.stderr)
