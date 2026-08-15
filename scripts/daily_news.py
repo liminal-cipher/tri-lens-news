@@ -8,6 +8,7 @@ Tri-Lens Daily News
 import os
 import html
 import json
+import re
 import smtplib
 import sys
 import time
@@ -35,6 +36,9 @@ LLM_MODEL = os.environ.get("LLM_MODEL") or os.environ.get("GEMINI_MODEL")
 NEWS_COUNT = 2
 PAPER_COUNT = 1
 KST = timezone(timedelta(hours=9))
+# 최근 이만큼의 아카이브에 실린 기사는 후보에서 뺀다. HN 상위권은 이틀 사흘씩 안 바뀌고
+# HF 논문은 더 오래 남아서, 어제 뭘 보냈는지 모르는 채로 고르면 같은 것이 다시 나간다
+COVERED_WINDOW_DAYS = 7
 
 # 자기를 밝히는 UA. 기본 python-requests UA는 위키백과 등에서 403이 나고, Chrome을 사칭하는
 # 것보다 무엇이 왜 긁는지 알리는 쪽이 맞다
@@ -303,17 +307,31 @@ def select_papers(papers):
     return papers[:PAPER_COUNT]
 
 
-def select_ai_tech_news(stories):
-    """AI/테크 관련 뉴스 선별"""
+def select_ai_tech_news(stories, covered=()):
+    """AI/테크 관련 뉴스 선별.
+
+    covered는 최근에 이미 나간 기사다. 주소가 같은 것은 후보에 들어오기 전에 빠지지만
+    (prefer_fresh), 같은 사건을 다른 곳이 쓴 기사는 주소가 달라서 그대로 남는다.
+    실제로 HN 원문을 걸러내자 같은 사건의 GeekNews 글이 대신 뽑혔다. 그건 사람이
+    읽어야 아는 것이라 여기서 모델에게 맡긴다
+    """
     titles = "\n".join(
         [f"{i+1}. [{s['source']}] {s['title']}" for i, s in enumerate(stories)]
     )
+    covered_block = ""
+    if covered:
+        joined = "\n".join(f"- {c['title']}" for c in covered)
+        covered_block = f"""
+최근 {COVERED_WINDOW_DAYS}일 사이에 아래 기사를 이미 다뤘다. 링크가 다르더라도 같은 사건을 다룬 항목이면 고르지 마라.
+{joined}
+"""
+
     prompt = f"""다음 뉴스 제목 목록에서 AI, 머신러닝, 테크 산업, 소프트웨어 개발과 가장 관련 있는 뉴스 {NEWS_COUNT}개를 골라줘.
 
 {titles}
 
 같은 사건을 다룬 항목이 여러 개 있으면 그중 하나만 고르고 나머지는 버려라.
-
+{covered_block}
 반드시 아래 JSON 형식으로만 응답해. 다른 텍스트 없이 JSON만:
 [{{"index": 1}}, {{"index": 5}}]"""
 
@@ -332,6 +350,17 @@ def select_ai_tech_news(stories):
             result.append(stories[idx])
         if len(result) == NEWS_COUNT:
             break
+
+    # 모델이 중복을 피하다 개수를 못 채우는 날이 있다. 겹치는 기사가 하나 나가는 편이
+    # 그날 메일이 통째로 안 나가는 것보다 낫다. prefer_fresh가 무는 것과 같은 판단이다
+    if len(result) < NEWS_COUNT:
+        print(f"  ⚠ 선별 {len(result)}건뿐이라 남은 후보로 채운다", file=sys.stderr)
+        for i, story in enumerate(stories):
+            if len(result) == NEWS_COUNT:
+                break
+            if i not in seen:
+                seen.add(i)
+                result.append(story)
     return result
 
 
@@ -499,6 +528,73 @@ def build_html_email(date_str, sections):
 
 ARCHIVE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "archive")
 
+# 아카이브의 기사 한 건. 제목 줄과 그 아래 원문 줄을 함께 꺼낸다. 따로 훑어 두 목록을
+# 만들면 어느 제목이 어느 URL이었는지가 순서에만 의존하게 된다
+ARCHIVE_ITEM = re.compile(r"^## \d+\. (.+)\n+원문: <([^>]+)>", re.MULTILINE)
+
+# 후보에서 중복을 뺄 때 몇 건이 빠졌는지. 아카이브 꼬리에 남긴다
+dropped_as_covered = []
+
+
+def normalize_url(url):
+    """비교용으로만 쓰는 형태. 같은 글이 조금 다른 주소로 오는 경우를 묶는다.
+
+    쿼리는 남긴다. 요즘은 드물지만 쿼리로 글을 가리는 사이트가 있어서, 떼면 서로 다른
+    기사가 같은 것으로 뭉친다. 추적 파라미터까지 손대지 않는 것은 지금 쓰는 세 소스에서
+    그런 주소를 본 적이 없기 때문이다
+    """
+    u = re.sub(r"^https?://", "", url.strip(), flags=re.I)
+    u = re.sub(r"^www\.", "", u, flags=re.I)
+    u = u.split("#", 1)[0].rstrip("/")
+    host, sep, rest = u.partition("/")
+    return host.lower() + sep + rest
+
+
+def recently_covered(days=COVERED_WINDOW_DAYS, now=None):
+    """최근 며칠 사이 실제로 발송된 기사의 제목과 URL.
+
+    아카이브는 보낸 것만 남기므로 이 목록은 "독자가 이미 받은 것"과 정확히 같다.
+    이걸 위해 따로 저장할 것을 만들지 않는다. 기록이 둘이 되면 언젠가 서로 어긋난다
+    """
+    now = now or datetime.now(KST)
+    covered = []
+    for back in range(days):
+        date_iso = (now - timedelta(days=back)).strftime("%Y-%m-%d")
+        path = os.path.join(ARCHIVE_DIR, f"{date_iso}.md")
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding="utf-8") as f:
+            covered += [
+                {"title": t.strip(), "url": u} for t, u in ARCHIVE_ITEM.findall(f.read())
+            ]
+    return covered
+
+
+def prefer_fresh(stories, covered, need, label):
+    """최근에 나간 기사를 후보에서 뺀다. 남는 게 모자라면 빼지 않는다.
+
+    주소가 같은 것만 걸린다. 같은 사건을 다른 곳이 쓴 기사는 여기를 그대로 통과하므로
+    선별 프롬프트가 이어서 거른다 (select_ai_tech_news).
+
+    중복을 피하려다 그날 메일이 통째로 안 나가는 것은 손해가 더 크다. 되돌릴 때는
+    조용히 넘어가지 않고 로그에 남겨서, 후보가 마른 날을 나중에 알아볼 수 있게 한다
+    """
+    seen = {normalize_url(c["url"]) for c in covered}
+    fresh = [s for s in stories if normalize_url(s["url"]) not in seen]
+    dropped = len(stories) - len(fresh)
+    if not dropped:
+        return stories
+    if len(fresh) < need:
+        print(
+            f"  ⚠ {label}: 중복 {dropped}건을 빼면 {len(fresh)}건뿐이라 {need}건을 못 채운다. "
+            "중복 제외를 푼다",
+            file=sys.stderr,
+        )
+        return stories
+    print(f"  {label}: 최근 {COVERED_WINDOW_DAYS}일 안에 나간 {dropped}건 제외")
+    dropped_as_covered.append((label, dropped))
+    return fresh
+
 
 def run_stats(reports, counts, sections):
     """그날 run이 어떻게 굴러갔는지 두 줄로 요약한다"""
@@ -510,12 +606,19 @@ def run_stats(reports, counts, sections):
     regenerated = sum(1 for r in reports if r["regenerated"])
     with_body = sum(1 for article, _ in sections if (article.get("body") or "").strip())
     sourced = ", ".join(f"{name} {len(items)}건" for name, items in counts.items())
-    return (
-        f"후보: {sourced}. "
-        f"본문 확보 {with_body}/{len(sections)}건.\n"
+    # 후보 수만 남기면 그날 중복이 몇 건 걸러졌는지가 기록에서 사라진다. 창을 며칠로
+    # 잡는 게 맞는지는 이 숫자가 쌓여야 판단할 수 있다
+    covered = ", ".join(f"{label} {n}건" for label, n in dropped_as_covered)
+
+    sources = [f"후보: {sourced}."]
+    if covered:
+        sources.append(f"중복 제외 {covered}.")
+    sources.append(f"본문 확보 {with_body}/{len(sections)}건.")
+    calls_line = (
         f"{models} 호출 {calls}건, 재시도 {used}회 (건당 예산 {RETRY_TOTAL}회). "
         f"검증 {passed}/{len(reports)} 통과, 재생성 {regenerated}건."
     )
+    return " ".join(sources) + "\n" + calls_line
 
 
 def write_archive(date_iso, date_str, sections, stats):
@@ -601,13 +704,18 @@ def main():
     news = counts["Hacker News"] + counts["GeekNews"]
     papers = counts["Hugging Face Papers"]
 
+    # 선별 전에 뺀다. 고르고 나서 버리면 그 자리가 빈 채로 메일이 나간다
+    covered = recently_covered()
+    news = prefer_fresh(news, covered, NEWS_COUNT, "뉴스")
+    papers = prefer_fresh(papers, covered, PAPER_COUNT, "논문")
+
     if len(news) < NEWS_COUNT:
         print("뉴스를 충분히 가져오지 못했습니다. 종료.", file=sys.stderr)
         sys.exit(1)
 
     # 2. 선별
     print("선별 중...")
-    selected = select_ai_tech_news(news) + select_papers(papers)
+    selected = select_ai_tech_news(news, covered) + select_papers(papers)
     for article in selected:
         print(f"  [{article['source']}] {article['title'][:55]}")
 
