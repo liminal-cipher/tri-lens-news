@@ -314,3 +314,63 @@ up in exception messages and retry logs.
 such as streaming, a different retry policy, or system messages as a separate
 field. The table is deliberately thin, and the first provider that does not fit
 is the signal to widen it rather than to bend the caller around it.
+
+## 2026-08-15 The bake-off compares models on a frozen input, read blind
+
+**Context.** The provider table made it possible to call two models in one
+process, which leaves the question of which model should write the digest. A
+comparison needs the models to differ and everything else to hold still, but the
+pipeline picks fresh stories on every run, so two runs an hour apart are already
+interpreting different articles. Selection is itself a model call. The pipeline
+also regenerates once when an output breaks a constraint.
+
+**Decision.** `scripts/bakeoff.py` has two commands. `freeze` collects, selects,
+and fetches article bodies once, then writes them to a file. `run` reads that
+file and asks every named model for a reading of the same articles, without
+regeneration, and writes two files: a JSON holding the label-to-model map, and a
+markdown report in which each model appears only as a letter. Letters are
+assigned by hashing the model name rather than by the order the models were
+named on the command line, and the order they are printed in rotates by one
+position per article.
+
+**Why.** Fixing the selection to one model's picks means the comparison is of
+the writing rather than of story-picking taste. Regeneration is left out because
+obeying the constraints is part of what is being compared, and feeding the
+violations back hides that difference behind a second call. The reader is the
+only judge of whether the sentences are good, which `docs/evaluation.md` already
+argues, and a reader who knows which model wrote a paragraph is not judging the
+paragraph. Rotation keeps one model from always sitting in the position that
+gets read first and most carefully. Hashing the letters came out of the first
+run, where the letters followed the order given on the command line and the
+command was still on screen, which is a blind that only holds until someone
+scrolls up.
+
+**Revisit if.** First-output pass rate stops separating candidates, either
+because every candidate clears the format check or because none do. At that
+point the interesting question becomes how well each recovers when told what it
+broke, and the run would need the regeneration step it deliberately omits.
+
+## 2026-08-15 The bake-off runs locally and commits only its results
+
+**Context.** The daily pipeline runs only in Actions, where the keys are. The
+bake-off needs the same keys, but it is started by hand and its output is read by
+a person rather than mailed. Its frozen input holds the full text of other
+people's articles, and this repository is public.
+
+**Decision.** No workflow. The bake-off runs locally and reads keys from a
+gitignored `.env` that `bakeoff.py` loads itself when the file exists. Frozen
+inputs are gitignored. Results are committed, and a result file carries the
+title, URL, and body length of each article rather than the body.
+
+**Why.** An experiment that iterates through push, dispatch, and log-reading
+iterates slowly, and nothing here needs a runner. Reading `.env` by hand is ten
+lines and keeps a dependency out of the workflow, which installs only what the
+daily run needs. Body length is the one thing later scoring needs from the body,
+since faithfulness is only scored on items that arrived with one, and keeping the
+length rather than the text records that without republishing the source.
+Results are committed because a comparison whose output cannot be reread later
+is an opinion.
+
+**Revisit if.** The comparison ever needs to run unattended, such as re-scoring
+the archive whenever a new model appears. That turns it back into a workflow and
+moves key handling back to repository secrets.
