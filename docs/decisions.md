@@ -374,3 +374,37 @@ is an opinion.
 **Revisit if.** The comparison ever needs to run unattended, such as re-scoring
 the archive whenever a new model appears. That turns it back into a workflow and
 moves key handling back to repository secrets.
+
+## 2026-08-15 The digest does not repeat what it sent in the last seven days
+
+**Context.** Hacker News keeps a story on its front page for days and Hugging
+Face's daily papers linger longer, while the pipeline chose each morning with no
+memory of the one before. The archive shows the result plainly: `z.ai/blog/glm-5.3`
+went out on both 08-14 and 08-15. The selection prompt already forbade picking
+two items about one event, but only within a single day's candidate list.
+
+**Decision.** Candidates whose URL appears in the last seven days of archive are
+dropped before selection, and the titles from that same window go into the
+selection prompt so the model can also drop a different link to the same event.
+Both steps give way rather than fail: if filtering would leave too few
+candidates the filter is skipped, and if the model returns fewer items than
+asked, the remainder is filled from what is left. Every relaxation is logged,
+and the number dropped is written into the archive footer.
+
+**Why.** The archive already records exactly what the reader received, so the
+question of whether they have seen an item needs no new store. A second store
+would eventually disagree with the first. The URL filter is deterministic and
+costs nothing, but it is not enough on its own: the first run with it enabled
+excluded two Hacker News links and immediately picked the GeekNews articles
+covering the same two events. Whether two links are one event is a reading
+rather than a rule, which is why that half is asked of the model. The
+relaxations exist because a repeated article is a smaller loss than a morning
+with no mail at all.
+
+**Revisit if.** The counts now written into the archive footer show that seven
+days is starving the selection, or that it is short enough that repeats still
+arrive. Both are visible from the footer alone, which is why the number is
+recorded rather than only logged. Reopen too if the model's same-event
+judgement turns out to be unreliable once there are more days to look at; the
+URL half would stand on its own, but the claim that the prompt catches the rest
+rests on one run.
