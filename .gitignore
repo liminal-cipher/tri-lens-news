@@ -1,2 +1,9 @@
 __pycache__/
 *.pyc
+
+# 로컬 실행용 키. 이 repo는 공개다
+.env
+
+# 비교 실험이 얼린 입력. 기사 본문이 통째로 들어 있어 커밋하지 않는다.
+# 결과(bakeoff/results)에는 제목·URL과 본문 길이만 남는다
+bakeoff/inputs/
