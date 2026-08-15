@@ -22,9 +22,9 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 # ── 설정 ──
-GMAIL_ADDRESS = os.environ["GMAIL_ADDRESS"]
-GMAIL_APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
-RECIPIENTS = os.environ["RECIPIENTS"].split(",")  # 쉼표로 구분된 이메일 목록
+# 메일 관련 설정은 send_email이 읽는다. 모듈 최상단에서 읽으면 메일을 보내지 않는 쪽에서
+# 이 파일을 import하는 것만으로 죽는다. 수집·해석 함수는 비교 실험에서도 그대로 쓴다
+
 # 미설정 변수는 빈 문자열로 넘어오므로 get의 기본값이 아니라 or로 받는다.
 # 모델 API 키는 여기서 읽지 않는다. 실제로 부르는 프로바이더의 것만 확인한다 (_require_key)
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER") or "gemini"
@@ -335,10 +335,12 @@ def select_ai_tech_news(stories):
     return result
 
 
-def generate_trilens(article, violations=None):
+def generate_trilens(article, violations=None, provider=None, model=None):
     """하나의 기사에 대해 3-렌즈 해석 생성.
 
-    violations가 있으면 직전 출력이 어긴 제약을 프롬프트에 되먹여 재생성한다
+    violations가 있으면 직전 출력이 어긴 제약을 프롬프트에 되먹여 재생성한다.
+    provider·model을 비우면 그날 설정된 것을 쓴다. 비교 실험이 같은 프롬프트를 여러
+    모델에 물릴 때만 지정한다 (scripts/bakeoff.py)
     """
     # 본문이 있으면 넣는다. 없으면 모델은 제목만 보고 쓰게 되고, 그건 해석이 아니라 추측이다
     body = (article.get("body") or "").strip()
@@ -407,7 +409,7 @@ test-time compute(답을 만드는 시점에 연산을 더 쓰는 것)를 늘린
 (2문장)
 </output_format>{retry_block}"""
 
-    return call_model(prompt)
+    return call_model(prompt, provider, model)
 
 
 # ── 이메일 전송 ──
@@ -551,17 +553,25 @@ def write_archive(date_iso, date_str, sections, stats):
 
 
 def send_email(subject, html_body):
-    """Gmail SMTP로 이메일 전송"""
+    """Gmail SMTP로 이메일 전송.
+
+    설정을 여기서 읽는다. 없으면 KeyError로 즉시 죽는 것이 맞다. 발송 직전까지 와서
+    수신자가 비어 있는 것을 조용히 넘기면 아무한테도 안 간 날이 성공으로 남는다
+    """
+    gmail_address = os.environ["GMAIL_ADDRESS"]
+    gmail_app_password = os.environ["GMAIL_APP_PASSWORD"]
+    recipients = os.environ["RECIPIENTS"].split(",")  # 쉼표로 구분된 이메일 목록
+
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"] = GMAIL_ADDRESS
-    msg["To"] = ", ".join(RECIPIENTS)
+    msg["From"] = gmail_address
+    msg["To"] = ", ".join(recipients)
     msg.attach(MIMEText(html_body, "html"))
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-        server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
-        server.sendmail(GMAIL_ADDRESS, RECIPIENTS, msg.as_string())
-    print(f"이메일 전송 완료 → {', '.join(RECIPIENTS)}")
+        server.login(gmail_address, gmail_app_password)
+        server.sendmail(gmail_address, recipients, msg.as_string())
+    print(f"이메일 전송 완료 → {', '.join(recipients)}")
 
 
 # ── 메인 ──
