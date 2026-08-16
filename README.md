@@ -15,7 +15,7 @@ So the three lenses are not three audiences. They are one reader climbing. **Eve
 
 ## What It Does
 
-Every morning it collects candidates from Hacker News, GeekNews, and Hugging Face Daily Papers, then assembles a fixed digest of three items.
+Every morning it collects candidates from Hacker News, GeekNews, and Hugging Face Daily Papers, drops whatever already went out in the last seven days, then assembles a fixed digest of three items.
 
 - **Two news items**, chosen by Gemini from the news sources for relevance to AI and software
 - **One paper**, taken by upvote from the day's curated paper list
