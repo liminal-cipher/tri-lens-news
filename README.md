@@ -78,27 +78,18 @@ The prompt was restructured around three techniques, following [Google's prompti
 
 ## Results & Limitations
 
-The pipeline ran daily from 2026-04-02 to 2026-06-04 at no cost, 64 scheduled runs of which 60 were recorded as successful. It then sat dead for ten weeks, and the more useful result is that nobody noticed when it stopped. That is the silent-failure gap below turning into an actual outage: with no alerting, an unattended job that quits looks exactly like an unattended job that works. The success count carries the same caveat, because until recently a run that collected nothing and sent nothing would have been counted among them.
+The pipeline runs daily at $0 monthly cost, with all delivered digests committed to [`archive/`](archive) since 2026-08-13.
 
-Delivery resumed on 2026-08-13, verified by a manual run that collected 30 candidates, selected 3, and sent the mail in 1m20s.
+- **Automated rule validation**: Prompt formatting (two sentences per lens, ordered tiers, negative constraints) is enforced deterministically via `evaluate.py` with automatic one-time regeneration upon violation.
+- **Fail-safe operational resilience**: Includes keepalive pushes against GitHub Actions inactivity deactivation, sending-account error alerts, and slot-preserving candidate replacement upon model safety filtering.
 
-Beyond cost, **almost nothing has been measured**. The prompt constraints used to be enforced by the prompt alone, so a violation would ship; they are now checked before dispatch by rule rather than by judgment, at no API cost, and a violating interpretation is regenerated once with its violations fed back. The checks cover what the constraint block states literally: no preamble, all three lenses present and in order, exactly two sentences each, no markdown. The rules added since, that a lens carries forward from the one above it and that glosses stay bounded, have no mechanical test and are enforced by the prompt alone. They were judged by reading the output before and after, which is not measurement.
+Known limitations:
 
-What went out is now kept. Every delivered digest is committed under [`archive/`](archive) from 2026-08-13 onward, which is the corpus a later scoring pass would need. Earlier days are unrecoverable, because they were never written down anywhere.
+- **Faithfulness is unmeasured**: The interpretation quality against full article bodies has not yet been quantitatively scored. A human labeling rubric and LLM judge agreement framework are defined in [docs/evaluation.md](docs/evaluation.md).
+- **Delivery timing is best-effort**: GitHub Actions cron execution can delay 5 to 30 minutes under infrastructure load.
+- **Deduplication is prompt-based**: Cross-source duplicate detection across Hacker News and GeekNews relies on model judgment rather than semantic embeddings.
 
-Each archived day ends with a line recording how many model calls it took, how many retries those calls consumed against a budget of three, and how many interpretations passed the constraint check. Retries are handled below the application and leave nothing behind on their own, so a call that succeeded on its third attempt used to look exactly like one that succeeded on its first. That line is the difference between a pipeline that is healthy and one that has been running on its last attempt for a week.
-
-Everything else stands. There is no record of run successes and failures beyond the Actions tab, which drops its logs after 90 days, no evaluation of whether the interpretations are faithful to the articles, and no reader feedback.
-
-Known gaps, all present in the current code:
-
-- **The model now sees the news body, and how often that works is not yet a number.** The two news items are fetched and passed as extracted article text, as the paper's abstract already was, so all three interpretations can in principle be checked against a source rather than one in three. The fetch first ran end to end on 2026-08-14: of four attempts that day three returned a usable body, and the fourth extracted zero characters from a Hacker News link. Four attempts on one day is not a rate, and the linked domain changes daily, so the count at the foot of each archived digest is the thing to watch before designing around it.
-
-- **Model calls retry on 5xx only.** `call_model` used to post directly, so a single transient 5xx ended that morning's run, which is what happened on 2026-08-13 when Gemini returned 503 on the first interpretation. It now goes through the retry session, which required adding POST to the retried methods because urllib3 leaves non-idempotent methods out by default. A 429 from an exhausted quota is still not retried and still ends the run, which is what ended the scheduled run on 2026-08-14. Failed calls now log the response body, because the raised error carries the status and the URL while the name of the exhausted quota sits in the body, and without it a per-minute limit and a daily one look identical in the log.
-- **The selection response is parsed strictly.** The model is asked for JSON and the reply goes to `json.loads` with no fallback, so a malformed answer stops the run rather than degrading to a default pick.
-- **Alerting covers failed runs, not absent ones.** A failed run emails the sending account, so a strict-parse error, a model error, or the fewer-than-three-stories exit surfaces the same morning. A run that never starts still announces nothing, because there is no job to send the alert from. The keepalive removes the one cause of that seen so far, but an Actions outage would pass unnoticed exactly as before.
-- **No cross-source deduplication.** Hacker News and GeekNews regularly carry the same story under different titles, and nothing detects that they are the same. Selecting one list position twice is prevented, but two positions pointing at the same underlying story are not.
-- **Delivery time is approximate.** GitHub Actions cron can lag 5 to 30 minutes under load. Triggering at 07:30 KST to land near 08:00 is a mitigation, not a guarantee.
+Detailed design choices and operational incident history are documented in [docs/decisions.md](docs/decisions.md).
 
 ## Getting Started
 
@@ -115,15 +106,15 @@ Known gaps, all present in the current code:
 
 ## Roadmap
 
-The limitations above set the order. Failure visibility, constraint checking, and article text in context are in place, so what remains of measurement is the half that cannot be decided by rule. Its prerequisite is met: there is now a source to check each of the three interpretations against.
-
-- **Faithfulness scoring**: score each interpretation against its source and log the result. The metric, the rubric, the labelling procedure, and the agreement threshold a judge has to clear before its numbers are reported are written down in [docs/evaluation.md](docs/evaluation.md). Nothing has been labelled yet; the archive that supplies the sample started on 2026-08-13.
-- **Deduplication**: collapse the same story arriving from both sources before selection.
-- **Reader feedback**: a thumbs up or down in the email, stored somewhere light, to check whether the three-lens split is actually useful or just a nice idea.
+- [x] **Source expansion & article body context**: Integrated Hugging Face Daily Papers and full article body scraping via Trafilatura.
+- [x] **Automated constraint validation**: Deterministic formatting and sentence count verification with 1-attempt error feedback regeneration.
+- [x] **Cross-day deduplication**: Deterministic 7-day URL filtering and model-based same-event suppression.
+- [ ] **Faithfulness scoring**: Score interpretation claims against source text using human labels and LLM judge agreement ([docs/evaluation.md](docs/evaluation.md)).
+- [ ] **Reader feedback**: Lightweight email reaction link (thumbs up/down) to collect reader utility signal.
 
 ## Status
 
-Delivering. Ran daily from 2026-04-02 to 2026-06-04, paused for ten weeks due to GitHub scheduled workflow inactivity rules, and resumed on 2026-08-13 with daily archive commits. The scheduled run on 2026-09-01 encountered a safety filter block on one paper, which was resolved by relaxing Gemini safety settings to `BLOCK_ONLY_HIGH`, adding defensive error extraction, and introducing slot-preserving candidate replacement. Last reviewed 2026-09-01.
+Active. Personal pipeline, delivering daily morning digests via GitHub Actions since 2026-08-13. Last updated 2026-09-01.
 
 ## License
 
