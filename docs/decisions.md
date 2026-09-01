@@ -408,3 +408,30 @@ recorded rather than only logged. Reopen too if the model's same-event
 judgement turns out to be unreliable once there are more days to look at; the
 URL half would stand on its own, but the claim that the prompt catches the rest
 rests on one run.
+
+## 2026-09-01 Relax safety filters and replace blocked items from slot pools
+
+**Context.** The morning run on 2026-09-01 crashed on `KeyError: 'parts'` when
+Gemini returned HTTP 200 with an empty candidate whose finishReason was filtered
+under the default `BLOCK_MEDIUM_AND_ABOVE` safety threshold. The provider
+response extractor assumed `content.parts[0].text` always existed, and when one
+item was blocked the entire pipeline ended.
+
+**Decision.**
+1. Set `safetySettings` explicitly to `BLOCK_ONLY_HIGH` on Gemini calls.
+2. Defensively parse model responses in `PROVIDERS` and raise an explicit error
+containing the block reason when output is omitted.
+3. If an item fails generation or is blocked by the model, attempt replacement
+from the same slot pool (news from unselected news candidates, papers from next-ranked
+HF papers) up to one replacement per failing item.
+
+**Why.** Technical and academic texts frequently trigger false positives under
+default moderation thresholds. Setting `BLOCK_ONLY_HIGH` prevents legitimate AI
+and security discussions from being blocked. Defensive parsing turns an unhandled
+`KeyError` into a recoverable signal. Replacing from the same pool preserves the
+fixed slot structure (two news + one paper) without compromising availability.
+
+**Revisit if.** A model output that genuinely violates safety guidelines is
+produced, or if replacement candidates consistently fail and indicate upstream
+source degradation.
+
