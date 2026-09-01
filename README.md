@@ -123,7 +123,7 @@ The limitations above set the order. Failure visibility, constraint checking, an
 
 ## Status
 
-Delivering. Ran daily from 2026-04-02 to 2026-06-04, then stopped for ten weeks because GitHub disabled the workflow under its inactivity rule for scheduled jobs. That is a third shape of silent failure and the one that actually happened: there is no failed run to alert on, because there is no run at all. The schedule is enabled again and the keepalive job now covers the cause. The scheduled run on 2026-08-14 ended on a 429 at its first interpretation, and a manual run eight hours later delivered. Which quota was exhausted is not known, since the run before it had made one successful call and the error body was being discarded at the time. Last reviewed 2026-08-14.
+Delivering. Ran daily from 2026-04-02 to 2026-06-04, paused for ten weeks due to GitHub scheduled workflow inactivity rules, and resumed on 2026-08-13 with daily archive commits. The scheduled run on 2026-09-01 encountered a safety filter block on one paper, which was resolved by relaxing Gemini safety settings to `BLOCK_ONLY_HIGH`, adding defensive error extraction, and introducing slot-preserving candidate replacement. Last reviewed 2026-09-01.
 
 ## License
 

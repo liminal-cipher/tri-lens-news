@@ -209,6 +209,16 @@ def _require_key(name):
     return key
 
 
+# 기술/학술 기사 요약 시 오탐으로 인한 차단을 방지하기 위해 BLOCK_ONLY_HIGH로 설정한다
+GEMINI_SAFETY_SETTINGS = [
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_ONLY_HIGH"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
+    {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "BLOCK_ONLY_HIGH"},
+]
+
+
 def _gemini(model, prompt):
     """Gemini. 키를 URL 쿼리가 아니라 헤더로 보낸다.
 
@@ -218,8 +228,44 @@ def _gemini(model, prompt):
     return (
         f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
         {"Content-Type": "application/json", "x-goog-api-key": _require_key("GEMINI_API_KEY")},
-        {"contents": [{"parts": [{"text": prompt}]}]},
+        {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "safetySettings": GEMINI_SAFETY_SETTINGS,
+        },
     )
+
+
+def _extract_gemini(d):
+    """Gemini 응답 JSON에서 본문 텍스트를 꺼낸다.
+
+    안전 필터나 인용 차단에 걸리면 200 OK여도 parts 없이 finishReason만 온다.
+    그걸 무조건 parts[0]으로 열면 KeyError가 나므로 여기서 원인을 담아 던진다
+    """
+    candidates = d.get("candidates") or []
+    if not candidates:
+        feedback = d.get("promptFeedback") or {}
+        reason = feedback.get("blockReason") or "응답 없음"
+        raise RuntimeError(f"Gemini 프롬프트 차단됨 ({reason})")
+
+    cand = candidates[0]
+    parts = cand.get("content", {}).get("parts") or []
+    text_parts = [p.get("text", "") for p in parts if p.get("text")]
+    if text_parts:
+        return "".join(text_parts)
+
+    finish_reason = cand.get("finishReason") or "알 수 없음"
+    raise RuntimeError(f"Gemini 출력 차단 또는 누락 (finishReason: {finish_reason})")
+
+
+def _extract_openai_compatible(d):
+    """OpenAI 호환 API 응답 JSON에서 본문 텍스트를 꺼낸다"""
+    choices = d.get("choices") or []
+    if not choices:
+        raise RuntimeError("OpenAI-compatible 응답에 choices가 없다")
+    content = choices[0].get("message", {}).get("content")
+    if content is None:
+        raise RuntimeError("OpenAI-compatible 응답에 content가 없다")
+    return content
 
 
 def _openai_compatible(base, key_name):
@@ -240,14 +286,10 @@ def _openai_compatible(base, key_name):
 
 PROVIDERS = {
     # 이름: (요청 만들기, 응답에서 본문 꺼내기, 기본 모델)
-    "gemini": (
-        _gemini,
-        lambda d: d["candidates"][0]["content"]["parts"][0]["text"],
-        "gemini-3.6-flash",
-    ),
+    "gemini": (_gemini, _extract_gemini, "gemini-3.6-flash"),
     "groq": (
         _openai_compatible("https://api.groq.com/openai/v1", "GROQ_API_KEY"),
-        lambda d: d["choices"][0]["message"]["content"],
+        _extract_openai_compatible,
         # 한 번 실행이 7~9K 토큰이라 TPM 8K인 gpt-oss-120b는 가끔 넘긴다
         "llama-3.3-70b-versatile",
     ),
@@ -439,6 +481,38 @@ test-time compute(답을 만드는 시점에 연산을 더 쓰는 것)를 늘린
 </output_format>{retry_block}"""
 
     return call_model(prompt, provider, model)
+
+
+def interpret_article(article):
+    """한 기사의 본문을 확보하고 3-렌즈 해석 및 제약 검증을 수행한다.
+
+    본문이 없으면 여기서 가져온다. 실패 시 예외를 던져 상위 루프가 차순위 대체 여부를
+    결정할 수 있게 한다
+    """
+    if not article.get("body"):
+        print(f"  원문 가져오는 중: {article['title'][:50]}")
+        article["body"] = fetch_article_body(article["url"])
+
+    analysis = generate_trilens(article)
+
+    # 제약 위반은 한 번만 되먹여 재생성한다. 그래도 어기면 기록하고 그대로 보낸다.
+    # 해석 하나가 규격에서 벗어난 것이 그날 메일을 통째로 거르는 것보다 낫다
+    violations = evaluate.check(analysis)
+    regenerated = bool(violations)
+    if violations:
+        print(f"      제약 위반 {len(violations)}건, 재생성: {'; '.join(violations)}")
+        analysis = generate_trilens(article, violations)
+        violations = evaluate.check(analysis)
+        if violations:
+            print(f"      재생성 후에도 위반: {'; '.join(violations)}")
+
+    report = {
+        "title": article["title"],
+        "violations": violations,
+        "regenerated": regenerated,
+        "fillers": evaluate.count_fillers(analysis),
+    }
+    return article, analysis, report
 
 
 # ── 이메일 전송 ──
@@ -728,51 +802,54 @@ def main():
         )
         sys.exit(1)
 
-    # 3. 뉴스 원문 본문 확보. 논문은 초록이 이미 붙어 있다
-    print("원문 가져오는 중...")
-    for article in selected:
-        if article.get("body"):
-            continue
-        print(f"  {article['title'][:50]}")
-        article["body"] = fetch_article_body(article["url"])
-
-    # 4. 3-렌즈 해석 생성
+    # 3. 3-렌즈 해석 생성 (특정 기사 차단/실패 시 슬롯별 차순위 후보로 1회 대체)
     print("3-렌즈 해석 생성 중...")
     sections = []
     reports = []
+    used_urls = {a["url"] for a in selected}
+
     for i, article in enumerate(selected):
         print(f"  [{i+1}/{len(selected)}] {article['title']}")
-        analysis = generate_trilens(article)
+        try:
+            art, analysis, report = interpret_article(article)
+            sections.append((art, analysis))
+            reports.append(report)
+        except Exception as e:
+            print(f"      해석 실패: {e}", file=sys.stderr)
+            is_paper = article.get("source") == PAPER_SOURCE
+            pool = papers if is_paper else news
+            label = "논문" if is_paper else "뉴스"
+            replacement = next((c for c in pool if c["url"] not in used_urls), None)
+            if replacement:
+                used_urls.add(replacement["url"])
+                print(f"      {label} 차순위 후보로 대체 시도: {replacement['title'][:50]}")
+                try:
+                    art, analysis, report = interpret_article(replacement)
+                    sections.append((art, analysis))
+                    reports.append(report)
+                    print(f"      차순위 후보로 해석 성공")
+                except Exception as rep_err:
+                    print(f"      차순위 후보 해석도 실패: {rep_err}", file=sys.stderr)
+            else:
+                print(f"      대체 가능한 남은 {label} 후보 없음", file=sys.stderr)
 
-        # 제약 위반은 한 번만 되먹여 재생성한다. 그래도 어기면 기록하고 그대로 보낸다.
-        # 해석 하나가 규격에서 벗어난 것이 그날 메일을 통째로 거르는 것보다 낫다
-        violations = evaluate.check(analysis)
-        regenerated = bool(violations)
-        if violations:
-            print(f"      제약 위반 {len(violations)}건, 재생성: {'; '.join(violations)}")
-            analysis = generate_trilens(article, violations)
-            violations = evaluate.check(analysis)
-            if violations:
-                print(f"      재생성 후에도 위반: {'; '.join(violations)}")
+    if len(sections) < wanted:
+        print(
+            f"유효한 해석을 {wanted}개 완성하지 못했습니다 ({len(sections)}개). 종료.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
-        reports.append({
-            "title": article["title"],
-            "violations": violations,
-            "regenerated": regenerated,
-            "fillers": evaluate.count_fillers(analysis),
-        })
-        sections.append((article, analysis))
-
-    # 5. 발송 전 검증 결과 기록
+    # 4. 발송 전 검증 결과 기록
     evaluate.write_summary(reports)
 
-    # 6. 이메일 발송
+    # 5. 이메일 발송
     print("이메일 발송 중...")
     subject = f"☀️ Tri-Lens 모닝 뉴스 | {date_str}"
     html_body = build_html_email(date_str, sections)
     send_email(subject, html_body)
 
-    # 7. 보낸 것만 남긴다. 발송이 실패한 날의 해석은 아무한테도 안 갔으므로 기록도 아니다
+    # 6. 보낸 것만 남긴다. 발송이 실패한 날의 해석은 아무한테도 안 갔으므로 기록도 아니다
     stats = run_stats(reports, counts, sections)
     print(stats)
     write_archive(date_iso, date_str, sections, stats)
