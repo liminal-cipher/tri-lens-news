@@ -68,7 +68,7 @@ Monthly cost is $0. Every component sits inside a free tier at this volume.
 
 Early versions produced the usual failure modes: a preamble before the answer ("Sure, I will translate this news for you"), and markdown syntax that Gmail rendered as literal asterisks.
 
-The prompt was restructured around three techniques, following [Google's prompting guide](https://ai.google.dev/gemini-api/docs/prompting-strategies) and [Anthropic's best practices](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering):
+The prompt was restructured around five techniques, following [Google's prompting guide](https://ai.google.dev/gemini-api/docs/prompting-strategies) and [Anthropic's best practices](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering):
 
 - **XML tags** separate role, task, constraints, and output format so instructions do not bleed into each other
 - **One-shot anchoring** with a full worked example fixes the tone and proves that the answer starts immediately, with no greeting
@@ -81,7 +81,7 @@ The prompt was restructured around three techniques, following [Google's prompti
 The pipeline runs daily at $0 monthly cost, with all delivered digests committed to [`archive/`](archive) since 2026-08-13.
 
 - **Automated rule validation**: Prompt formatting (two sentences per lens, ordered tiers, negative constraints) is enforced deterministically via `evaluate.py` with automatic one-time regeneration upon violation.
-- **Fail-safe operational resilience**: Includes keepalive pushes against GitHub Actions inactivity deactivation, sending-account error alerts, and slot-preserving candidate replacement upon model safety filtering.
+- **Operational safeguards**: Includes keepalive pushes against GitHub Actions inactivity deactivation, sending-account error alerts, and slot-preserving candidate replacement upon model safety filtering.
 
 Known limitations:
 
