@@ -1,4 +1,4 @@
-# Tri-Lens Daily News
+# Tri-Lens News
 
 An automated pipeline that emails two AI news items and one paper every morning, each interpreted at three depths so a reader can climb from one to the next.
 
@@ -114,7 +114,7 @@ Detailed design choices and operational incident history are documented in [docs
 
 ## Status
 
-Active. Personal pipeline, delivering daily morning digests via GitHub Actions since 2026-08-13. Last updated 2026-09-01.
+Active. Personal pipeline, delivering daily morning digests via GitHub Actions since 2026-08-13. Last updated 2026-09-13.
 
 ## License
 
