@@ -1,0 +1,57 @@
+name: Tri-Lens Concept Radar
+
+on:
+  schedule:
+    # Sunday 20:00 KST (11:00 UTC). Kept separate from the morning digest.
+    - cron: '0 11 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  send-radar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests feedparser trafilatura
+
+      - name: Build and send Concept Radar
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENTS: ${{ secrets.RECIPIENTS }}
+          LLM_PROVIDER: ${{ vars.LLM_PROVIDER }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+        run: python scripts/concept_radar.py
+
+      - name: Commit the delivered radar
+        run: |
+          if [ -z "$(git status --porcelain concepts/)" ]; then
+            echo "새 Concept Radar 기록 없음"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add concepts/
+          git commit -m "chore(concepts): ${RADAR_DATE}"
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+      - name: Report a failed run
+        if: failure()
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 scripts/notify_failure.py
