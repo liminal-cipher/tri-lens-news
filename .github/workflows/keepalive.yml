@@ -6,8 +6,8 @@ name: Keepalive
 
 on:
   schedule:
-    # 매월 1일 03:00 UTC. 최대 31일 간격이므로 50일 임계값에 걸리기 전에 반드시 한 번 돈다
-    - cron: '0 3 1 * *'
+    # 매주 월요일 03:17 UTC. 한 번 실행이 빠져도 60일 제한 이전에 다시 검사한다.
+    - cron: '17 3 * * 1'
   workflow_dispatch:
 
 permissions:
@@ -23,7 +23,7 @@ jobs:
         run: |
           days=$(( ( $(date +%s) - $(git log -1 --format=%ct) ) / 86400 ))
           echo "last commit ${days} days ago"
-          if [ "$days" -lt 50 ]; then
+          if [ "$days" -lt 45 ]; then
             echo "recent activity, nothing to do"
             exit 0
           fi
