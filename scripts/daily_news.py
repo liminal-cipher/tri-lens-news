@@ -12,6 +12,7 @@ import re
 import smtplib
 import sys
 import time
+from email.utils import parsedate_to_datetime
 import requests
 import feedparser
 import trafilatura
@@ -54,6 +55,9 @@ MIN_BODY_CHARS = 500
 RETRY_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE", "PUT", "DELETE"})
 RETRY_TOTAL = 3
 MODEL_RETRY_TOTAL = 4
+QUOTA_RETRY_TOTAL = 2
+QUOTA_RETRY_MAX_SECONDS = 90
+QUOTA_RETRY_FALLBACK_SECONDS = 15
 
 
 def get_session(retry_post=False):
@@ -307,6 +311,46 @@ model_retries = []
 models_used = []
 
 
+
+class ModelRateLimitError(RuntimeError):
+    """429 after bounded retries or a non-retryable quota."""
+
+
+def quota_retry_delay(resp):
+    """Return the server-requested wait, or None for a daily quota."""
+    try:
+        payload = resp.json()
+    except ValueError:
+        payload = {}
+    error = (payload.get("error") or {}) if isinstance(payload, dict) else {}
+    details = error.get("details") or []
+    for detail in details:
+        if detail.get("@type", "").endswith("QuotaFailure"):
+            for violation in detail.get("violations") or []:
+                if "perday" in str(violation.get("quotaId") or "").lower():
+                    return None
+
+    retry_after = resp.headers.get("Retry-After")
+    if retry_after:
+        try:
+            return max(0.0, float(retry_after))
+        except ValueError:
+            try:
+                at = parsedate_to_datetime(retry_after)
+                if at.tzinfo is None:
+                    at = at.replace(tzinfo=timezone.utc)
+                return max(0.0, (at - datetime.now(timezone.utc)).total_seconds())
+            except (TypeError, ValueError, OverflowError):
+                pass
+
+    for detail in details:
+        if detail.get("@type", "").endswith("RetryInfo"):
+            match = re.fullmatch(r"(\d+(?:\.\d+)?)s", str(detail.get("retryDelay") or ""))
+            if match:
+                return float(match.group(1))
+    return QUOTA_RETRY_FALLBACK_SECONDS
+
+
 def call_model(prompt, provider=None, model=None):
     """모델 호출. 프로바이더가 갈리는 자리는 여기 하나뿐이다"""
     provider = provider or LLM_PROVIDER
@@ -314,30 +358,41 @@ def call_model(prompt, provider=None, model=None):
         known = ", ".join(PROVIDERS)
         raise RuntimeError(f"모르는 프로바이더: {provider} (아는 것: {known})")
     build, extract, default_model = PROVIDERS[provider]
-    # provider만 넘기고 model을 비우면 그 프로바이더의 기본값을 쓴다. 환경변수 쪽 모델은
-    # 기본 프로바이더에만 해당한다. 안 그러면 groq에 gemini 모델 이름이 넘어간다
     model = model or (LLM_MODEL if provider == LLM_PROVIDER else None) or default_model
     url, headers, body = build(model, prompt)
 
-    # 생성 호출은 부수효과가 없으므로 POST여도 재시도해 안전하다.
-    # 재시도가 없던 동안 5xx 한 번에 그날 발송이 통째로 날아갔다
     session = get_session(retry_post=True)
-    resp = session.post(url, headers=headers, json=body, timeout=60)
+    transport_retries = 0
+    transport_codes = []
+    quota_retries = 0
+    for attempt in range(QUOTA_RETRY_TOTAL + 1):
+        resp = session.post(url, headers=headers, json=body, timeout=60)
+        used, codes = retries_used(resp)
+        transport_retries += used
+        transport_codes.extend(codes)
 
-    used, codes = retries_used(resp)
-    model_retries.append(used)
+        if resp.status_code != 429:
+            break
+        # Replacing an article cannot fix a model quota. Respect the server's
+        # delay instead of consuming the remaining quota with new candidates.
+        print(f"      HTTP 429: {resp.text[:2000]}", file=sys.stderr)
+        delay = quota_retry_delay(resp)
+        if attempt == QUOTA_RETRY_TOTAL or delay is None or delay > QUOTA_RETRY_MAX_SECONDS:
+            raise ModelRateLimitError(
+                f"{provider}:{model} quota exceeded; no further model calls this run"
+            )
+        wait = max(1.0, delay + 1.0)
+        quota_retries += 1
+        print(f"      429 응답 대기 {wait:.1f}초 후 재시도 {quota_retries}/{QUOTA_RETRY_TOTAL}")
+        time.sleep(wait)
+
+    model_retries.append(transport_retries + quota_retries)
     models_used.append(f"{provider}:{model}")
-    if used:
-        seen = ", ".join(str(c) for c in codes) or "연결 오류"
-        print(f"      재시도 {used}/{MODEL_RETRY_TOTAL}회 후 성공 (받은 응답: {seen})")
+    if transport_retries:
+        seen = ", ".join(str(c) for c in transport_codes) or "연결 오류"
+        print(f"      재시도 {transport_retries}회 후 성공 (받은 응답: {seen})")
 
-    # 어떤 한도에 걸렸는지는 응답 본문에만 적혀 있다. raise_for_status가 던지는 메시지에는
-    # 상태 코드와 URL뿐이라, 여기서 찍지 않으면 분당인지 하루치인지 토큰 한도인지 모른 채로
-    # 추측하게 된다. 실제로 429를 두 번 맞고도 어느 한도인지 못 가렸다.
-    # 본문에 키는 없다. 키는 헤더에만 있고 헤더는 찍지 않는다
     if not resp.ok:
-        # 429 본문은 QuotaFailure와 RetryInfo가 붙어 400대보다 길다. 짧게 자르면
-        # 정작 필요한 quota 이름이 잘려나간다
         print(f"      HTTP {resp.status_code}: {resp.text[:2000]}", file=sys.stderr)
 
     resp.raise_for_status()
@@ -693,7 +748,7 @@ def run_stats(reports, counts, sections):
         sources.append(f"중복 제외 {covered}.")
     sources.append(f"본문 확보 {with_body}/{len(sections)}건.")
     calls_line = (
-        f"{models} 호출 {calls}건, 재시도 {used}회 (건당 예산 {MODEL_RETRY_TOTAL}회). "
+        f"{models} 호출 {calls}건, 재시도 {used}회 (5xx 예산 {MODEL_RETRY_TOTAL}회·429 예산 {QUOTA_RETRY_TOTAL}회). "
         f"검증 {passed}/{len(reports)} 통과, 재생성 {regenerated}건."
     )
     return " ".join(sources) + "\n" + calls_line
@@ -818,6 +873,8 @@ def main():
             art, analysis, report = interpret_article(article)
             sections.append((art, analysis))
             reports.append(report)
+        except ModelRateLimitError:
+            raise  # Changing articles cannot fix an exhausted API quota.
         except Exception as e:
             print(f"      해석 실패: {e}", file=sys.stderr)
             is_paper = article.get("source") == PAPER_SOURCE
@@ -832,6 +889,8 @@ def main():
                     sections.append((art, analysis))
                     reports.append(report)
                     print(f"      차순위 후보로 해석 성공")
+                except ModelRateLimitError:
+                    raise
                 except Exception as rep_err:
                     print(f"      차순위 후보 해석도 실패: {rep_err}", file=sys.stderr)
             else:
