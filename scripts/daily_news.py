@@ -351,7 +351,7 @@ def quota_retry_delay(resp):
     return QUOTA_RETRY_FALLBACK_SECONDS
 
 
-def call_model(prompt, provider=None, model=None):
+def call_model(prompt, provider=None, model=None, timeout=60):
     """모델 호출. 프로바이더가 갈리는 자리는 여기 하나뿐이다"""
     provider = provider or LLM_PROVIDER
     if provider not in PROVIDERS:
@@ -366,7 +366,7 @@ def call_model(prompt, provider=None, model=None):
     transport_codes = []
     quota_retries = 0
     for attempt in range(QUOTA_RETRY_TOTAL + 1):
-        resp = session.post(url, headers=headers, json=body, timeout=60)
+        resp = session.post(url, headers=headers, json=body, timeout=timeout)
         used, codes = retries_used(resp)
         transport_retries += used
         transport_codes.extend(codes)
