@@ -23,6 +23,7 @@ HN_LIMIT = 250
 MAX_TERMS = 3
 MAX_EVIDENCE_PER_TERM = 3
 MAX_ARCHIVE_EXCERPT_CHARS = 900
+RADAR_MODEL_TIMEOUT = 120  # Weekly prompts contain much more context.
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 ARCHIVE_DIR = ROOT_DIR / "archive"
@@ -198,7 +199,7 @@ JSON 배열만 출력한다. 각 항목은 아래 모양이다.
 term은 검색 가능한 영어 원어로 쓰고, evidence_indices는 위 candidates의 1-based 번호만 쓴다.
 </output_format>"""
 
-    raw = daily_news.call_model(prompt)
+    raw = daily_news.call_model(prompt, timeout=RADAR_MODEL_TIMEOUT)
     data = json.loads(_strip_json_fence(raw))
     if not isinstance(data, list):
         raise ValueError("Radar 후보 출력이 JSON 배열이 아니다")
@@ -295,7 +296,7 @@ JSON 배열만 출력한다.
 }}]
 </output_format>"""
 
-    raw = daily_news.call_model(prompt)
+    raw = daily_news.call_model(prompt, timeout=RADAR_MODEL_TIMEOUT)
     data = json.loads(_strip_json_fence(raw))
     if not isinstance(data, list):
         raise ValueError("Radar 설명 출력이 JSON 배열이 아니다")
