@@ -53,14 +53,18 @@ MIN_BODY_CHARS = 500
 # urllib3가 기본으로 재시도하는 메서드. POST는 멱등하지 않아 여기 없다
 RETRY_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE", "PUT", "DELETE"})
 RETRY_TOTAL = 3
+MODEL_RETRY_TOTAL = 4
 
 
 def get_session(retry_post=False):
     """재시도 로직이 포함된 requests 세션 생성"""
     session = requests.Session()
     retries = Retry(
-        total=RETRY_TOTAL,
-        backoff_factor=1,
+        # Model POSTs wait longer between transient 5xx retries.
+        # Bound read-timeout retries to avoid repeating slow generation calls.
+        total=MODEL_RETRY_TOTAL if retry_post else RETRY_TOTAL,
+        backoff_factor=2 if retry_post else 1,
+        read=1 if retry_post else None,
         status_forcelist=[500, 502, 503, 504],
         allowed_methods=(RETRY_METHODS | {"POST"}) if retry_post else RETRY_METHODS,
     )
@@ -325,7 +329,7 @@ def call_model(prompt, provider=None, model=None):
     models_used.append(f"{provider}:{model}")
     if used:
         seen = ", ".join(str(c) for c in codes) or "연결 오류"
-        print(f"      재시도 {used}/{RETRY_TOTAL}회 후 성공 (받은 응답: {seen})")
+        print(f"      재시도 {used}/{MODEL_RETRY_TOTAL}회 후 성공 (받은 응답: {seen})")
 
     # 어떤 한도에 걸렸는지는 응답 본문에만 적혀 있다. raise_for_status가 던지는 메시지에는
     # 상태 코드와 URL뿐이라, 여기서 찍지 않으면 분당인지 하루치인지 토큰 한도인지 모른 채로
@@ -689,7 +693,7 @@ def run_stats(reports, counts, sections):
         sources.append(f"중복 제외 {covered}.")
     sources.append(f"본문 확보 {with_body}/{len(sections)}건.")
     calls_line = (
-        f"{models} 호출 {calls}건, 재시도 {used}회 (건당 예산 {RETRY_TOTAL}회). "
+        f"{models} 호출 {calls}건, 재시도 {used}회 (건당 예산 {MODEL_RETRY_TOTAL}회). "
         f"검증 {passed}/{len(reports)} 통과, 재생성 {regenerated}건."
     )
     return " ".join(sources) + "\n" + calls_line
