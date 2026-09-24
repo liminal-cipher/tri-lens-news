@@ -54,6 +54,9 @@ activity, since both the threshold and the cadence are derived from that
 number. Note also that this has never fired: that a `GITHUB_TOKEN` push resets
 the timer is taken from common practice, not from anything observed here.
 
+**Superseded by.** The 2026-09-24 weekly keepalive decision below fixes
+the gap between monthly checks and the 60-day inactivity cutoff.
+
 ## 2026-08-13 Model calls are retried even though POST is not idempotent
 
 **Context.** A retry-mounted session existed but covered news fetching only, so
@@ -435,3 +438,20 @@ fixed slot structure (two news + one paper) without compromising availability.
 produced, or if replacement candidates consistently fail and indicate upstream
 source degradation.
 
+## 2026-09-24 Check keepalive weekly before inactivity cutoff
+
+**Context.** The monthly 50-day check could run on day 49 and do nothing,
+then miss GitHub's 60-day inactivity cutoff before the next check. A
+scheduled run can also be delayed or skipped.
+
+**Decision.** Check every Monday at 03:17 UTC. Push an empty commit only
+after at least 45 days without a commit.
+
+**Why.** With weekly checks, the first eligible check occurs no later
+than day 52; if one check is missed, the following check occurs before
+day 60 under normal scheduling. Ordinary repository activity still
+avoids unnecessary empty commits.
+
+**Revisit if.** GitHub changes its inactivity policy, multiple weekly
+runs are missed, or an actual keepalive push fails. Whether a
+GITHUB_TOKEN-authored push resets inactivity has not yet been verified.
