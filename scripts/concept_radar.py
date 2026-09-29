@@ -5,7 +5,6 @@ Tri-Lens Concept Radar
 - 원문/아카이브 근거로 개념을 설명하고 Gmail SMTP로 발송
 """
 
-import html
 import json
 import os
 import re
@@ -14,6 +13,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import daily_news
+import email_templates
 
 
 WINDOW_DAYS = 14
@@ -341,48 +341,9 @@ JSON 배열만 출력한다.
 
 
 def build_html_email(date_str, concepts, evidence):
-    cards = []
-    for concept in concepts:
-        links = []
-        for idx in concept["evidence_indices"]:
-            item = evidence[idx]
-            title = html.escape(item["title"])
-            url = html.escape(item["url"], quote=True)
-            source = html.escape(item["source"])
-            links.append(
-                f'<li style="margin:0 0 6px 0;"><a href="{url}" style="color:#0969da;text-decoration:none;">{title}</a> '
-                f'<span style="color:#8c959f;">— {source}</span></li>'
-            )
-        cards.append(
-            f"""
-        <div style="margin:0 0 24px 0;padding:20px;background:#f6f8fa;border:1px solid #e1e4e8;border-radius:10px;">
-            <div style="font-size:20px;font-weight:800;color:#1f2328;margin:0 0 14px 0;">{html.escape(concept['term'])}</div>
-            <div style="font-size:12px;font-weight:700;color:#656d76;margin:0 0 4px 0;">한 줄 정의</div>
-            <div style="font-size:15px;line-height:1.75;color:#1f2328;margin:0 0 14px 0;">{html.escape(concept['definition'])}</div>
-            <div style="font-size:12px;font-weight:700;color:#656d76;margin:0 0 4px 0;">왜 지금</div>
-            <div style="font-size:15px;line-height:1.75;color:#1f2328;margin:0 0 14px 0;">{html.escape(concept['why_now'])}</div>
-            <div style="font-size:12px;font-weight:700;color:#656d76;margin:0 0 4px 0;">실무에서</div>
-            <div style="font-size:15px;line-height:1.75;color:#1f2328;margin:0 0 14px 0;">{html.escape(concept['practical_relevance'])}</div>
-            <div style="font-size:12px;font-weight:700;color:#656d76;margin:0 0 6px 0;">근거</div>
-            <ul style="font-size:13px;line-height:1.5;margin:0;padding-left:20px;">{''.join(links)}</ul>
-        </div>"""
-        )
-
-    preview = html.escape(" · ".join(c["term"] for c in concepts))
-    used = ", ".join(dict.fromkeys(m.split(":", 1)[-1] for m in daily_news.models_used)) or "언어 모델"
-    return f"""
-    <div style="display:none;max-height:0;overflow:hidden;opacity:0;">{preview}</div>
-    <div style="max-width:640px;margin:0 auto;padding:8px;font-family:{daily_news.FONT_STACK};">
-        <div style="padding:20px 0 16px 0;border-bottom:2px solid #1f2328;margin:0 0 24px 0;">
-            <div style="font-size:22px;font-weight:800;color:#1f2328;">🧭 Tri-Lens Concept Radar</div>
-            <div style="margin:8px 0 0 0;color:#656d76;font-size:13px;">{date_str} · 최근 {WINDOW_DAYS}일 표본에서 건질 개념어</div>
-        </div>
-        {''.join(cards)}
-        <div style="padding:16px 0 8px 0;border-top:1px solid #e1e4e8;color:#8c959f;font-size:12px;line-height:1.6;">
-            이 Radar는 업계 전체 통계가 아니라 Hacker News·GeekNews·실제 발송 digest의 표본을 읽습니다.<br>
-            {html.escape(used)} + GitHub Actions로 주 1회 자동 발송됩니다.
-        </div>
-    </div>"""
+    return email_templates.render_radar(
+        date_str, concepts, evidence, daily_news.models_used, WINDOW_DAYS
+    )
 
 
 def write_archive(date_iso, date_str, concepts, evidence, counts):
