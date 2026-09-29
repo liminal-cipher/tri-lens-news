@@ -6,7 +6,6 @@ Tri-Lens Daily News
 """
 
 import os
-import html
 import json
 import re
 import smtplib
@@ -17,9 +16,9 @@ import requests
 import feedparser
 import trafilatura
 import evaluate
+import email_templates
+import email_assets
 from datetime import datetime, timezone, timedelta
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -576,85 +575,17 @@ def interpret_article(article):
 
 # ── 이메일 전송 ──
 
-FONT_STACK = "-apple-system,BlinkMacSystemFont,'Segoe UI','Apple SD Gothic Neo',sans-serif"
-PAPER_SOURCE = "Hugging Face Papers"
+PAPER_SOURCE = email_templates.PAPER_SOURCE
 
 
 def render_lenses(analysis):
-    """세 렌즈를 각각의 블록으로 그린다.
-
-    규격을 벗어난 출력이면 원문을 그대로 보여준다. 발송을 막지 않기로 한 이상,
-    깨진 출력도 읽을 수 있는 형태로는 나가야 한다
-    """
-    bodies, order = evaluate.split_lenses(analysis.strip())
-    usable = len(order) == len(evaluate.LENS_MARKERS) and all(bodies.get(m) for m in order)
-
-    if not usable:
-        text = html.escape(analysis.strip()).replace("\n", "<br>")
-        return f'<div style="font-size:15px;line-height:1.75;color:#1f2328;">{text}</div>'
-
-    blocks = []
-    for i, marker in enumerate(order):
-        label = evaluate.LENS_NAMES[marker]
-        text = html.escape(bodies[marker])
-        gap = "0" if i == len(order) - 1 else "0 0 18px 0"
-        blocks.append(
-            f'<div style="margin:{gap};padding:0 0 0 14px;border-left:3px solid #d0d7de;">'
-            f'<div style="font-size:12px;font-weight:700;letter-spacing:.06em;'
-            f'text-transform:uppercase;color:#656d76;margin:0 0 6px 0;">'
-            f'{marker} {label}</div>'
-            f'<div style="font-size:15px;line-height:1.75;color:#1f2328;">{text}</div>'
-            f'</div>'
-        )
-    return "".join(blocks)
+    """세 렌즈를 그린다. 파싱할 수 없는 출력도 원문 그대로 읽을 수 있게 남긴다."""
+    return email_templates.render_lenses(analysis)
 
 
 def build_html_email(date_str, sections):
     """HTML 이메일 본문 생성"""
-    articles_html = ""
-    for i, (article, analysis) in enumerate(sections):
-        # 제목도 모델 출력도 그대로 신뢰할 수 없다. 반드시 이스케이프를 거친다
-        title = html.escape(article["title"])
-        url = html.escape(article["url"])
-        source = html.escape(article["source"])
-        is_paper = article["source"] == PAPER_SOURCE
-        badge = "#8250df" if is_paper else "#0969da"
-
-        articles_html += f"""
-        <div style="margin:0 0 28px 0;padding:20px;background:#f6f8fa;border:1px solid #e1e4e8;border-radius:10px;">
-            <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:{badge};margin:0 0 10px 0;">
-                {source}
-            </div>
-            <div style="margin:0 0 16px 0;">
-                <a href="{url}" style="font-size:18px;font-weight:700;line-height:1.4;color:#0969da;text-decoration:none;">
-                    {i+1}. {title}
-                </a>
-            </div>
-            {render_lenses(analysis)}
-        </div>"""
-
-    # 받은편지함 목록에 제목 옆으로 보이는 미리보기 문구
-    preview = html.escape(" · ".join(a["title"] for a, _ in sections))
-
-    # 푸터에 벤더 이름을 박아두면 모델을 바꾼 날부터 조용히 거짓이 된다. 그날 실제로
-    # 부른 모델을 읽어서 쓴다. 프로바이더 접두사는 독자에게 의미가 없어 떼고 이름만 남긴다
-    used = ", ".join(dict.fromkeys(m.split(":", 1)[-1] for m in models_used)) or "언어 모델"
-
-    body = f"""
-    <div style="display:none;max-height:0;overflow:hidden;opacity:0;">{preview}</div>
-    <div style="max-width:640px;margin:0 auto;padding:8px;font-family:{FONT_STACK};">
-        <div style="padding:20px 0 16px 0;border-bottom:2px solid #1f2328;margin:0 0 24px 0;">
-            <div style="font-size:22px;font-weight:800;color:#1f2328;">☀️ Tri-Lens 모닝 뉴스</div>
-            <div style="margin:8px 0 0 0;color:#656d76;font-size:13px;">
-                {date_str} · 같은 소식, 세 가지 깊이
-            </div>
-        </div>
-        {articles_html}
-        <div style="padding:16px 0 8px 0;border-top:1px solid #e1e4e8;color:#8c959f;font-size:12px;line-height:1.6;">
-            {html.escape(used)} + GitHub Actions로 매일 아침 자동 발송됩니다.
-        </div>
-    </div>"""
-    return body
+    return email_templates.render_daily(date_str, sections, models_used)
 
 
 # ── 아카이브 ──
@@ -798,11 +729,7 @@ def send_email(subject, html_body):
     gmail_app_password = os.environ["GMAIL_APP_PASSWORD"]
     recipients = os.environ["RECIPIENTS"].split(",")  # 쉼표로 구분된 이메일 목록
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = gmail_address
-    msg["To"] = ", ".join(recipients)
-    msg.attach(MIMEText(html_body, "html"))
+    msg = email_assets.build_message(subject, html_body, gmail_address, recipients)
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(gmail_address, gmail_app_password)
