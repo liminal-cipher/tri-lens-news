@@ -122,6 +122,20 @@ Detailed design choices and operational incident history are documented in [docs
 5. Optionally set `LLM_PROVIDER` and `LLM_MODEL` repository variables under Settings, Variables, Actions to pin a different provider or model. Leaving them unset uses the defaults in the script. A provider other than `gemini` needs its own key added as a secret, `GROQ_API_KEY` for `groq`; the key for a provider you do not use can stay absent.
 6. Open the Actions tab. `Tri-Lens Daily News` and `Tri-Lens Concept Radar` both support manual dispatch for testing.
 
+### Email Preview
+
+Daily Brief and Concept Radar share an editorial email layout with a white reading surface, restrained colour accents, and mobile spacing. Preview the latest delivered archives locally with Python 3.12 or later:
+
+```sh
+python scripts/preview_email.py
+```
+
+Open `preview/index.html` to switch between editions and desktop/mobile widths. The command uses only the Python standard library, reads no credentials, and makes no network or email calls. Generated files are gitignored. To preview a particular issue, pass `--daily archive/YYYY-MM-DD.md` or `--radar concepts/YYYY-MM-DD.md`.
+
+Both senders use the same rendering functions as the preview. Essential styles are inline, with a table-based shell and a narrow-screen media query following [Gmail's CSS support](https://developers.google.com/workspace/gmail/design/css). Browser previews do not verify rendering in Gmail, Outlook, or their dark modes; check a received email before treating client compatibility as verified.
+
+Lens icons use editable SVG sources and inline PNG images in mail. See [Email Design](docs/email-design.md) to change their colours and regenerate the exports.
+
 ## Roadmap
 
 - [x] **Source expansion & article body context**: Integrated Hugging Face Daily Papers and full article body scraping via Trafilatura.
