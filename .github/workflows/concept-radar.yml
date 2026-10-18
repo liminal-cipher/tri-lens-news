@@ -14,17 +14,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        id: checkout
 
       - name: Set up Python
+        id: setup
         uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
       - name: Install dependencies
+        id: install
         run: pip install requests feedparser trafilatura
 
       - name: Build and send Concept Radar
+        id: build
         env:
+          FAILURE_REPORT_PATH: ${{ runner.temp }}/tri-lens-failure.json
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
@@ -33,9 +38,10 @@ jobs:
           LLM_PROVIDER: ${{ vars.LLM_PROVIDER }}
           LLM_MODEL: ${{ vars.LLM_MODEL }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
-        run: python scripts/concept_radar.py
+        run: python scripts/run_job.py scripts/concept_radar.py
 
       - name: Commit the delivered radar
+        id: archive
         run: |
           if [ -z "$(git status --porcelain concepts/)" ]; then
             echo "새 Concept Radar 기록 없음"
@@ -51,7 +57,9 @@ jobs:
       - name: Report a failed run
         if: failure()
         env:
+          FAILURE_REPORT_PATH: ${{ runner.temp }}/tri-lens-failure.json
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          STEPS_JSON: ${{ toJSON(steps) }}
         run: python3 scripts/notify_failure.py

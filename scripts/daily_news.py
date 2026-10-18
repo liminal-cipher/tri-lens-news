@@ -18,6 +18,7 @@ import trafilatura
 import evaluate
 import email_templates
 import email_assets
+import failure_report
 from datetime import datetime, timezone, timedelta
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -358,6 +359,14 @@ def call_model(prompt, provider=None, model=None, timeout=60):
         raise RuntimeError(f"모르는 프로바이더: {provider} (아는 것: {known})")
     build, extract, default_model = PROVIDERS[provider]
     model = model or (LLM_MODEL if provider == LLM_PROVIDER else None) or default_model
+    try:
+        return _request_model(prompt, provider, model, timeout, build, extract)
+    except Exception as exc:
+        exc.failure_details = failure_report.model_details(provider, model, exc)
+        raise
+
+
+def _request_model(prompt, provider, model, timeout, build, extract):
     url, headers, body = build(model, prompt)
 
     session = get_session(retry_post=True)
@@ -377,9 +386,11 @@ def call_model(prompt, provider=None, model=None, timeout=60):
         print(f"      HTTP 429: {resp.text[:2000]}", file=sys.stderr)
         delay = quota_retry_delay(resp)
         if attempt == QUOTA_RETRY_TOTAL or delay is None or delay > QUOTA_RETRY_MAX_SECONDS:
-            raise ModelRateLimitError(
+            error = ModelRateLimitError(
                 f"{provider}:{model} quota exceeded; no further model calls this run"
             )
+            error.response = resp
+            raise error
         wait = max(1.0, delay + 1.0)
         quota_retries += 1
         print(f"      429 응답 대기 {wait:.1f}초 후 재시도 {quota_retries}/{QUOTA_RETRY_TOTAL}")
@@ -387,7 +398,7 @@ def call_model(prompt, provider=None, model=None, timeout=60):
 
     model_retries.append(transport_retries + quota_retries)
     models_used.append(f"{provider}:{model}")
-    if transport_retries:
+    if transport_retries and resp.ok:
         seen = ", ".join(str(c) for c in transport_codes) or "연결 오류"
         print(f"      재시도 {transport_retries}회 후 성공 (받은 응답: {seen})")
 
@@ -746,6 +757,7 @@ def main():
     print(f"=== Tri-Lens Daily News === {date_str}")
 
     # 1. 수집
+    failure_report.set_stage("뉴스 수집")
     print("뉴스 수집 중...")
     counts = {
         "Hacker News": fetch_hackernews_top(15),
@@ -774,6 +786,7 @@ def main():
         sys.exit(1)
 
     # 2. 선별
+    failure_report.set_stage("뉴스 선별")
     print("선별 중...")
     selected = select_ai_tech_news(news, covered) + select_papers(papers)
     for article in selected:
@@ -789,6 +802,7 @@ def main():
         sys.exit(1)
 
     # 3. 3-렌즈 해석 생성 (특정 기사 차단/실패 시 슬롯별 차순위 후보로 1회 대체)
+    failure_report.set_stage("3-렌즈 해석 생성")
     print("3-렌즈 해석 생성 중...")
     sections = []
     reports = []
@@ -831,15 +845,18 @@ def main():
         sys.exit(1)
 
     # 4. 발송 전 검증 결과 기록
+    failure_report.set_stage("발송 전 검증")
     evaluate.write_summary(reports)
 
     # 5. 이메일 발송
+    failure_report.set_stage("이메일 발송")
     print("이메일 발송 중...")
     subject = f"☀️ Tri-Lens 모닝 뉴스 | {date_str}"
     html_body = build_html_email(date_str, sections)
     send_email(subject, html_body)
 
     # 6. 보낸 것만 남긴다. 발송이 실패한 날의 해석은 아무한테도 안 갔으므로 기록도 아니다
+    failure_report.set_stage("발송 아카이브 저장")
     stats = run_stats(reports, counts, sections)
     print(stats)
     write_archive(date_iso, date_str, sections, stats)

@@ -14,6 +14,7 @@ from pathlib import Path
 
 import daily_news
 import email_templates
+import failure_report
 
 
 WINDOW_DAYS = 14
@@ -394,6 +395,7 @@ def main():
     date_iso = now.strftime("%Y-%m-%d")
     print(f"=== Tri-Lens Concept Radar === {date_str}")
 
+    failure_report.set_stage("주간 표본 수집")
     print("주간 표본 수집 중...")
     archive_items = read_recent_archive(now)
     hn_items = fetch_hn_recent(now)
@@ -411,6 +413,7 @@ def main():
     covered = recent_terms(now)
     print(f"최근 {HISTORY_DAYS}일 Radar 기등록 용어 {len(covered)}개")
 
+    failure_report.set_stage("개념 후보 선별")
     print("개념 후보 선별 중...")
     nominations = nominate_terms(samples, covered)
     if not nominations:
@@ -419,19 +422,23 @@ def main():
     for row in nominations:
         print(f"  {row['term']} ← {row['evidence_indices']}")
 
+    failure_report.set_stage("근거 확인")
     print("근거 확인 중...")
     evidence = hydrate_evidence(samples, nominations)
 
+    failure_report.set_stage("개념 설명 생성")
     print("개념 설명 생성 중...")
     concepts = explain_terms(nominations, evidence)
     if not concepts:
         print("근거 확인 뒤 남은 개념어가 없습니다. 메일을 보내지 않습니다.")
         return
 
+    failure_report.set_stage("이메일 발송")
     print("이메일 발송 중...")
     subject = f"🧭 Tri-Lens Concept Radar | {date_str}"
     daily_news.send_email(subject, build_html_email(date_str, concepts, evidence))
 
+    failure_report.set_stage("발송 아카이브 저장")
     counts = {"hn": len(hn_items), "geeknews": len(geek_items), "archive": len(archive_items)}
     write_archive(date_iso, date_str, concepts, evidence, counts)
     print("완료!")
