@@ -54,9 +54,22 @@ def map_records(records, prompt_for, parse, client):
     def process(batch, depth=0):
         try:
             prompt = prompt_for(batch)
-            if estimate_tokens(prompt) > client.input_budget:
-                raise InputTooLarge("Radar prompt exceeds input budget")
-            return parse(read_array(client(prompt)), batch), 1
+            for attempt in range(2):
+                if estimate_tokens(prompt) > client.input_budget:
+                    raise InputTooLarge("Radar prompt exceeds input budget")
+                raw = client(prompt)
+                try:
+                    return parse(read_array(raw), batch), 1
+                except ValueError:
+                    if attempt:
+                        raise
+                    # A model can produce valid JSON with invalid source IDs.
+                    # Retry once under the same pacing and size limits; never
+                    # discard invalid rows and publish the rest as complete.
+                    print("  Radar 응답 검증 실패: 형식과 근거 번호 재검증 요청", flush=True)
+                    prompt += ("\nYour previous answer failed validation. Follow the JSON schema "
+                               "and item limit exactly. Use only IDs present in this input, "
+                               "with no reused candidate IDs across groups. Return JSON only.")
         except (InputTooLarge, requests.HTTPError) as exc:
             if isinstance(exc, requests.HTTPError) and (
                 exc.response is None or exc.response.status_code != 413

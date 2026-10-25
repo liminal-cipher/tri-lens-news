@@ -237,6 +237,41 @@ class BatchTest(OfflineTest):
         result = radar._consolidate(candidates, [], client)
         self.assertEqual(result, [{"term": "speculative decoding", "evidence_indices": [3, 47, 98]}])
 
+    def test_consolidation_derives_names_from_ids_instead_of_model_spelling(self):
+        candidates = [{"term": "speculative decoding", "reason": "grounded", "evidence_indices": [3]}]
+        client = Mock(return_value='[{"candidate_ids":[1]}]', input_budget=5000)
+        self.assertEqual(radar._consolidate(candidates, [], client),
+                         [{"term": "speculative decoding", "evidence_indices": [3]}])
+
+    def test_invalid_candidate_groups_are_repaired_once(self):
+        candidates = [{"term": f"concept {i}", "reason": "grounded", "evidence_indices": [i]}
+                      for i in (1, 2)]
+        client = Mock(side_effect=['[{"candidate_ids":[1]},{"candidate_ids":[1,2]}]',
+                                   '[{"candidate_ids":[1,2]}]'], input_budget=5000)
+        self.assertEqual(radar._consolidate(candidates, [], client),
+                         [{"term": "concept 1", "evidence_indices": [1, 2]}])
+        self.assertEqual(client.call_count, 2)
+        self.assertIn("previous answer failed validation", client.call_args.args[0])
+
+    def test_repeated_invalid_output_stops_instead_of_dropping_rows(self):
+        client = Mock(return_value='[{"term":"test","reason":"grounded","evidence_indices":[9]}]',
+                      input_budget=5000)
+        with self.assertRaises(ValueError):
+            map_records([{"id": 1, "text": "source"}], json.dumps, radar._parse_candidates, client)
+        self.assertEqual(client.call_count, 2)
+
+    def test_validation_repair_still_respects_the_input_budget(self):
+        records = [{"id": i, "text": "x" * 40} for i in range(8)]
+        calls = []
+        def model(prompt):
+            self.assertLessEqual(estimate_tokens(prompt), 400)
+            calls.append(prompt)
+            return "invalid JSON" if len(calls) == 1 else prompt
+        client = Mock(side_effect=model, input_budget=400)
+        rows, leaves = map_records(records, json.dumps, lambda data, batch: data, client)
+        self.assertEqual(rows, records)
+        self.assertGreater(leaves, 1)
+
     def test_consolidation_has_multiple_levels_and_finishes_with_three(self):
         sizes = []
         def model(prompt):

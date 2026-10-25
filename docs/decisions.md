@@ -498,3 +498,25 @@ increase total tokens and runtime. Multi-stage selection can lose useful
 candidates or nuance even with preserved source IDs. Live model success and
 editorial quality have not been evaluated by the offline tests; inspect the
 next scheduled Radar before treating either as verified.
+
+### Live validation on 2026-10-26
+
+The first live dry run passed the API limits but stopped at candidate-name/ID
+consistency validation. Consolidation now returns existing candidate IDs only;
+the representative name is derived from the first ID in each group. A malformed
+JSON/schema/evidence response gets one corrective request under the same pacing
+and size bounds. Repeated invalid output still aborts before delivery.
+
+The subsequent live dry run processed 293 sources in eleven extraction batches,
+consolidated 97 extracted candidates, and generated three concept explanations,
+email HTML and a local archive. All twenty Groq requests returned HTTP 200, with
+no 413, 429, truncation or corrective retry. The largest measured prompt was
+3,155 tokens; the largest measured input-plus-output total was 4,212 tokens.
+Runtime was 1,039.65 seconds; aggregate usage was 52,467 tokens. This confirms
+the conservative pacing works, but also shows its runtime and repeated-prompt
+cost. Generated terms were LoRA, KV cache and XLA compilation cache; technical
+completion does not establish that these are the most useful or novel choices.
+
+SMTP was disabled and output was redirected to the ignored local preview area.
+No Actions dispatch, production email, or production archive commit was made
+by validation. GitHub-hosted execution and inbox delivery remain unverified.
