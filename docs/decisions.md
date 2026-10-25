@@ -455,3 +455,46 @@ avoids unnecessary empty commits.
 **Revisit if.** GitHub changes its inactivity policy, multiple weekly
 runs are missed, or an actual keepalive push fails. Whether a
 GITHUB_TOKEN-authored push resets inactivity has not yet been verified.
+
+## 2026-10-26 Bound and pace Concept Radar model requests
+
+**Context.** Radar run 40203484331 failed during concept nomination: Groq
+reported HTTP 413, requesting 22,645 tokens against an 8,000 TPM limit.
+Waiting cannot make that single oversized request fit.
+
+**Decision.** Radar extracts up to twelve candidates per bounded batch, keeps
+global source IDs, and consolidates compact candidates into at most three
+concepts. Exact term matches merge in code; the model can merge aliases by
+referencing existing candidate IDs. Evidence IDs are derived from those
+candidates, not invented by the consolidation response. Intermediate rounds
+retain more candidates than the final selection and must make progress.
+
+Every Radar request uses a 5,000 estimated input-token ceiling and a 2,000
+output-token cap. The dependency-free estimate is half the UTF-8 byte length
+plus 128 for framing; it is not an exact model tokenizer or a guarantee of
+server accounting. HTTP 413 splits the input further. Large individual source
+texts are split with the same source ID. Explanations run per concept, with
+bounded evidence compression when necessary. Truncated model output is also
+reduced rather than accepted as a complete answer.
+
+The Radar-only client reserves input plus maximum output in a 61-second rolling
+window and honours Groq's remaining-token/reset headers. HTTP 429 respects
+Retry-After, with at most two retries; daily quotas stop immediately. Transient
+failures get at most two paced retries. An execution allows at most 100 HTTP
+attempts and 30 minutes of cumulative waiting. Unrecoverable batches abort
+before delivery. Daily News keeps its existing request path and behaviour.
+
+**Verification.** Run `python -m unittest discover -s tests -v`. Tests block
+network access and replace the clock, HTTP responses and SMTP. Coverage includes
+413 splitting, 429 waits, daily quotas, source-ID validation, multi-level
+consolidation, long explanations, and delivery only after all processing.
+An offline fixture uses 39 real archive entries from the 14-day window ending
+2026-10-25 plus 254 synthetic headlines. Its old prompt estimates at 31,888
+input tokens; extraction now uses ten batches, the largest at 4,985. These are
+local estimates on a fixture, not a replay of the failed request's exact input.
+
+**Trade-offs and follow-up.** Repeated instructions and intermediate summaries
+increase total tokens and runtime. Multi-stage selection can lose useful
+candidates or nuance even with preserved source IDs. Live model success and
+editorial quality have not been evaluated by the offline tests; inspect the
+next scheduled Radar before treating either as verified.
