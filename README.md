@@ -1,11 +1,10 @@
 # Tri-Lens News
 
-> An automated pipeline that emails two AI news items and one paper every morning, each interpreted at three depths so a reader can climb from one to the next.
+> Two AI news items and one paper, interpreted at three depths and scheduled for a daily email.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-![Gemini](https://img.shields.io/badge/Gemini-3.6%20Flash-4285F4?logo=google&logoColor=white)
+[![Licence: MIT](https://img.shields.io/badge/Licence-MIT-yellow.svg)](LICENSE)
+![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)
 ![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-cron-2088FF?logo=githubactions&logoColor=white)
-![Cost](https://img.shields.io/badge/Monthly%20cost-%240-success)
 
 ## Motivation
 
@@ -17,9 +16,9 @@ A second problem appears more slowly than a headline: the field starts using a t
 
 ## What It Does
 
-Every morning it collects candidates from Hacker News, GeekNews, and Hugging Face Daily Papers, drops whatever already went out in the last seven days, then assembles a fixed digest of three items.
+The daily job collects candidates from Hacker News, GeekNews, and Hugging Face Daily Papers, filters URLs covered in the last seven days, then attempts a fixed digest of three items. The URL filter is relaxed if it would leave too few candidates; successful delivery is not guaranteed every morning.
 
-- **Two news items**, chosen by Gemini from the news sources for relevance to AI and software
+- **Two news items**, chosen by the configured model from the news sources for relevance to AI and software
 - **One paper**, taken by upvote from the day's curated paper list
 
 Each item is rewritten through three lenses:
@@ -28,7 +27,7 @@ Each item is rewritten through three lenses:
 - **Developers** - stacks, implementation consequences
 - **Researchers** - open problems and research direction
 
-The paper slot is fixed rather than left to compete, because a paper title never wins a relevance contest against a product headline, and the Researchers lens has nothing real to say about a product launch. Each lens is capped at two sentences.
+The paper slot is fixed rather than left to compete with news titles, so research has a place in every completed digest. The prompt requests exactly two sentences per lens; detected formatting violations trigger one regeneration, but remaining violations do not block delivery.
 
 Once a week, Concept Radar samples the previous 14 days of high-signal Hacker News stories, the current GeekNews feed, and the digests that were actually delivered. It nominates at most three reusable AI/ML/software-engineering terms, fetches only the evidence articles needed to check those nominations, and emails a short definition, why the term matters now in the sampled material, where an engineer is likely to meet it, and the supporting links. Terms sent in the previous 90 days are suppressed so the Radar stays a discovery layer rather than a glossary that repeats itself.
 
@@ -44,83 +43,97 @@ graph TD
     Q --> D
     D -->|3-tier interpretation| V[Constraint check, one regeneration on violation]
     V --> E[Gmail SMTP]
-    E -->|delivered around 08:00 KST| F(Recipient)
+    E -->|target around 08:00 KST, not guaranteed| F(Recipient)
     E --> G[archive/YYYY-MM-DD.md]
 
     W[GitHub Actions weekly cron] -->|Sunday 20:00 KST| H[14-day sample]
-    H --> I{Model: nominate 0-3 concepts}
+    H --> I{Model: extract batches and consolidate 0-3 concepts}
     I --> J[Fetch nominated evidence only]
-    J --> K{Model: ground and explain}
+    J --> K{Model: compress evidence if needed and explain each concept}
     K --> L[Gmail SMTP]
     L --> M[concepts/YYYY-MM-DD.md]
 ```
 
-The daily path normally makes four model calls: one to select the news and three to interpret, plus one more for each interpretation that fails the constraint check. The paper is chosen without a model call, since the candidates are already human-curated and carry upvotes. Concept Radar normally makes two model calls per weekly run: nomination, then evidence-grounded explanation. It sends nothing when no term survives the second stage.
+The daily path makes four model calls when selection and all interpretations succeed first time: one to select the news and three to interpret. Regeneration, replacement items and transport retries can add calls. The paper is chosen without a model call. Concept Radar extracts candidates in bounded batches, consolidates them across batches, then explains each surviving concept using selected evidence, compressing long evidence when needed. Its call count depends on the sample; it sends nothing when no term survives.
 
-There is no database and no server. The daily and weekly jobs are separate scripts so a Radar failure cannot break the morning digest. Both keep only delivered output in the repository; article bodies used for grounding are fetched transiently and are not stored.
+There is no database or application server. The daily and weekly jobs are separate workflows, though they share code, provider quotas and SMTP credentials. Their production archive paths are written after SMTP returns successfully; that does not prove inbox receipt or prevent an archive push from failing. Fetched article bodies are transient in these jobs; local bake-off inputs can retain them in a gitignored directory.
 
-Two support jobs sit alongside them. A failed run emails the sending account rather than the recipient list, which keeps the boundary in place for whenever that list holds someone other than the person who maintains this. A monthly keepalive pushes an empty commit if the repository has been quiet for 50 days, which is what stops GitHub from disabling the schedule for inactivity. Delivered daily digests are committed under [`archive/`](archive); delivered Concept Radars are committed under `concepts/`.
+Each delivery workflow has a failure-alert step that emails the sending account rather than the recipient list. A separate weekly keepalive checks on Mondays and attempts an empty commit after at least 45 days without a commit. It is intended to avoid GitHub's inactivity cutoff; its ability to reset that timer has not been verified here. Daily digests are committed under [`archive/`](archive); Concept Radars under [`concepts/`](concepts).
 
 ## Tech Decisions
 
 | Component | Choice | Why this over alternatives |
 | --- | --- | --- |
-| Daily sources | Hacker News · GeekNews · Hugging Face Daily Papers (over raw arXiv) | The first two carry no research, which left one of the three lenses with nothing to say. Raw arXiv returns several hundred papers a day in one category with nothing to rank them by, while the curated list is ordered by upvote and ships the abstract. The cost is that the paper feed is the least stable dependency here, being an undocumented endpoint rather than a published API |
-| Concept discovery | Weekly 14-day sample from HN Search, GeekNews, and delivered digests | Emerging vocabulary is slower than a headline. A weekly pass can notice terms that recur across days without adding a fourth daily slot. HN is filtered by age and points before the model sees titles; only nominated evidence is fetched in full. The result is a sampled radar, not a claim about field-wide frequency |
-| Scheduler | GitHub Actions cron | Serverless with no instance to keep alive, and free on a public repo. The tradeoff is that the schedule is best-effort, which is handled below |
-| Model | Gemini 3.6 Flash, behind a provider table | Daily and weekly calls sit far inside the current free-tier allowance, and the context window fits the candidate lists. Everything a provider does differently is isolated behind one table, so both scripts can share the same model path. Set `LLM_PROVIDER` and `LLM_MODEL` repository variables to switch without a commit |
-| Delivery | Gmail SMTP | Email needs nothing installed and no account created. A web app or a bot would have put a step between the reader and the content |
+| Daily sources | Hacker News · GeekNews · Hugging Face Daily Papers (over raw arXiv) | HN and GeekNews can include research, but do not guarantee a paper slot. The curated paper list provides abstracts and upvotes for selection. The implementation relies on the current shape of the Daily Papers endpoint, so upstream changes can break collection |
+| Concept discovery | Weekly 14-day sample from HN Search, GeekNews, and delivered digests | A weekly pass looks for terms that recur across days without adding a fourth daily slot. HN is filtered by age and points before the model sees titles; article text is fetched only for nominated evidence without a stored digest excerpt. The result is a sample, not a claim about field-wide frequency |
+| Scheduler | GitHub Actions cron | No application server to keep alive. Standard GitHub-hosted runners are free for public repositories under [GitHub's billing rules](https://docs.github.com/en/billing/concepts/product-billing/github-actions). Scheduling remains best-effort |
+| Model | Configurable Gemini or Groq adapter | A shared provider table defines request and response formats. Set `LLM_PROVIDER` and `LLM_MODEL` repository variables to choose a supported model without a commit. Radar adds its own batching and pacing because a single nomination request exceeded a provider limit; limits and model availability still depend on the account and selected model |
+| Delivery | Gmail SMTP | Reaches the reader's existing inbox without a separate project account or app |
 | Storage | Markdown files in the repo (over a database) | What needs to persist is delivered text, written rarely and read directly. A database would add a service to keep alive in a project whose defining failure was something going quiet unattended. The cost is a repository that grows, slowly, forever |
-| Alerting | A step in the same workflow (over a hosted monitor) | An external monitor is one more unattended account that can go quiet, which is the exact failure being guarded against. Reusing the SMTP secrets adds no new surface and no new service. The cost is that it cannot report a run that never starts, which is what the keepalive covers instead |
-| Validation | Rule checks for tri-lens format; source grounding for Concept Radar | The daily constraint block is literal enough to test mechanically, so a judge model would be weaker than rules. Concept Radar asks a different question: whether a term is actually supported by recent source material, so it uses a second grounded pass over nominated evidence rather than accepting title-only guesses |
+| Alerting | A step in the same workflow (over a hosted monitor) | Reuses the existing SMTP account without another service. It cannot report a run that never starts, and SMTP failure can also prevent its alert from arriving. The keepalive addresses inactivity but is not an independent missing-run monitor |
+| Validation | Rule checks for selected tri-lens constraints; model-based grounding for Concept Radar | Literal format checks are deterministic and add no model call. Radar's explanation stage instead assesses selected evidence and may reject a candidate; this model judgement still needs independent quality evaluation |
 
 Choices made from 2026-08-13 onward are recorded in full where a decision needs a reopen condition, in [docs/decisions.md](docs/decisions.md).
 
-Monthly cost is $0 at the current volume and provider configuration.
+The project aims to fit within free allowances; current billing has not been verified. Model availability, quotas and charges depend on the selected provider and account. Check the provider's current terms, including [Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing), before enabling scheduled calls.
 
 ## Prompt Engineering
 
-Early versions produced the usual failure modes: a preamble before the answer ("Sure, I will translate this news for you"), and markdown syntax that Gmail rendered as literal asterisks.
+Early versions produced the usual failure modes: a preamble before the answer ("Sure, I will translate this news for you"), and Markdown syntax that Gmail rendered as literal asterisks.
 
 The prompt was restructured around five techniques, following [Google's prompting guide](https://ai.google.dev/gemini-api/docs/prompting-strategies) and [Anthropic's best practices](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering):
 
-- **XML tags** separate role, task, constraints, and output format so instructions do not bleed into each other
-- **One-shot anchoring** with a full worked example fixes the tone and proves that the answer starts immediately, with no greeting
-- **Negative constraints** ban markdown, ban a list of filler phrases that kept recurring, and hold each lens to exactly two sentences
+- **XML tags** distinguish role, task, constraints and output format within the prompt
+- **One-shot anchoring** gives a worked example of the intended tone and an answer that starts without a greeting
+- **Negative constraints** request no Markdown, limited repetition of listed filler phrases and exactly two sentences per lens
 - **Carry-forward between lenses** tells the model that one reader is going top to bottom, so a lens names the thing the lens above it described in plain words. Before this, an interpretation could explain majority voting over samples and then reintroduce it two lines later as an unglossed term, which is the exact moment a reader loses the thread
-- **Terms in English with a bounded gloss** because a transliteration cannot be searched, and the reader here is the one trying to learn the field. The first version of this rule glossed everything, including `weight` and `VRAM`, so it now names the case it is for and caps glosses at two per lens
+- **Terms in English with a bounded gloss** retain the original spelling for lookup. The prompt asks for a gloss only when needed and at most two per lens, avoiding unnecessary explanations of familiar terms such as `weight` and `VRAM`
 
-Concept Radar uses a different two-stage prompt. The first pass can only nominate terms that appear in the sampled titles or delivered interpretations. The second pass receives the nominated evidence text and is allowed to drop a term if it turns out to be a product label, a title-only guess, or too weakly supported. It is also told not to describe the sample as an industry-wide frequency measurement.
+Concept Radar uses separate extraction, consolidation and explanation prompts. Extraction is instructed to nominate terms supported by sampled titles or delivered interpretations; consolidation selects across batches. Explanation receives selected evidence and may drop a term if it is a product label, a title-only guess or too weakly supported. These are model instructions, not independent factual verification. The prompts also prohibit describing the sample as an industry-wide frequency measurement.
 
 ## Results & Limitations
 
-The daily pipeline runs at $0 monthly cost, with all delivered digests committed to [`archive/`](archive) since 2026-08-13. Concept Radar was added on 2026-09-15; only delivered weekly Radars are written to `concepts/`.
+The repository contains daily output records beginning on 2026-08-13 and Concept Radar records beginning on 2026-09-28. Gaps in the archive are not evidence of uninterrupted delivery. The [2026-10-26 local Radar validation](docs/decisions.md#live-validation-on-2026-10-26) recorded 293 sources, 20 successful model requests and 1,039.65 seconds of runtime with SMTP disabled; this is one run, not a reliability or quality benchmark.
 
-- **Automated rule validation**: Prompt formatting (two sentences per lens, ordered tiers, negative constraints) is enforced deterministically via `evaluate.py` with automatic one-time regeneration upon violation.
+Historical sent output is preserved. Known wording and factual corrections are recorded in [Archive Corrections](docs/archive-corrections.md).
+
+- **Automated rule validation**: `evaluate.py` checks lens presence/order, a punctuation-based sentence count, selected Markdown markers and prohibited opening phrases, with one regeneration upon violation. It does not enforce every prompt constraint, and remaining violations can still be sent.
 - **Operational safeguards**: Includes keepalive pushes against GitHub Actions inactivity deactivation, sending-account error alerts, and slot-preserving candidate replacement upon model safety filtering.
 - **Concept evidence gate**: The weekly job first nominates terms, then fetches only the cited evidence and asks a second pass to discard unsupported or product-specific candidates before delivery.
 
 Known limitations:
 
-- **Faithfulness is unmeasured**: The interpretation quality against full article bodies has not yet been quantitatively scored. A human labeling rubric and LLM judge agreement framework are defined in [docs/evaluation.md](docs/evaluation.md).
+- **Faithfulness is unmeasured**: Interpretation quality against source text has not been quantitatively scored. A human labelling rubric and LLM judge agreement plan are defined in [docs/evaluation.md](docs/evaluation.md); collecting reproducible per-item evidence remains pending.
 - **Concept Radar is a sample, not a census**: Hacker News is filtered by recent engagement, GeekNews contributes its current RSS window, and delivered digests reflect the project's own editorial selection. A term absent from all three can still matter in the wider field.
-- **Delivery timing is best-effort**: GitHub Actions cron execution can delay 5 to 30 minutes under infrastructure load.
-- **Deduplication is prompt-based**: Cross-source duplicate detection across Hacker News and GeekNews relies on model judgment rather than semantic embeddings.
+- **Delivery timing is best-effort**: GitHub documents that [scheduled jobs can be delayed or dropped](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule). The 07:30 KST trigger is an intention to arrive around 08:00, not a bounded delivery guarantee.
+- **Deduplication has fallbacks**: Recent URLs are filtered deterministically when enough candidates remain. Same-event detection uses model judgement; selection fallback may still repeat an event. Radar also relies on model judgement for aliases of previously covered terms.
+- **Grounding is incomplete**: News-body fetch failures fall back to titles; fetched news text is capped at 6,000 characters. Radar may use a previous generated digest excerpt as evidence, so earlier errors can carry forward. Neither path establishes factual accuracy.
 
 Detailed design choices and operational incident history are documented in [docs/decisions.md](docs/decisions.md).
 
 ## Getting Started
 
-1. Get a [Gemini API key](https://aistudio.google.com/) (free, no credit card).
-2. Create a [Gmail App Password](https://myaccount.google.com/apppasswords).
-3. Fork this repo. Keep it public so Actions minutes stay free.
+1. Obtain an API key for the selected provider, such as [Gemini](https://aistudio.google.com/), and check model access and quotas for your account.
+2. Create a [Gmail App Password](https://myaccount.google.com/apppasswords). This requires 2-Step Verification and an account that [supports app passwords](https://support.google.com/accounts/answer/185833).
+3. Fork this repo. Public repositories using standard GitHub-hosted runners have free Actions usage; other runner or repository choices can incur charges.
 4. Add four secrets under Settings, Secrets, Actions:
    - `GEMINI_API_KEY`
    - `GMAIL_ADDRESS`
    - `GMAIL_APP_PASSWORD`
    - `RECIPIENTS` (comma-separated)
-5. Optionally set `LLM_PROVIDER` and `LLM_MODEL` repository variables under Settings, Variables, Actions to pin a different provider or model. Leaving them unset uses the defaults in the script. A provider other than `gemini` needs its own key added as a secret, `GROQ_API_KEY` for `groq`; the key for a provider you do not use can stay absent.
-6. Open the Actions tab. `Tri-Lens Daily News` and `Tri-Lens Concept Radar` both support manual dispatch for testing.
+5. Set `LLM_PROVIDER` and `LLM_MODEL` repository variables under Settings, Variables, Actions to the provider and model you intend to run. Leaving them unset uses the defaults in `scripts/daily_news.py`; confirm those defaults are available to your account before relying on them. For `groq`, add `GROQ_API_KEY` instead of the Gemini key; the unused provider's key may stay absent. The legacy `GEMINI_MODEL` variable is also read when `LLM_MODEL` is empty.
+6. Enable Actions in the fork and open the Actions tab. `Tri-Lens Daily News` and `Tri-Lens Concept Radar` support manual dispatch, which makes real API calls and can send real email. The workflows use Python 3.12, install `requests`, `feedparser` and `trafilatura`, and require permission to push archive commits to `main`.
+
+### Offline Checks
+
+For a local checkout with Python 3.12 or later:
+
+```sh
+python -m pip install requests feedparser trafilatura
+python -m unittest discover -s tests -v
+```
+
+Tests use synthetic model/SMTP responses and the tracked archives. They do not validate provider access or inbox receipt. Dependencies currently have no version pins or lockfile, so a later installation may resolve different versions. For model comparison, see `python scripts/bakeoff.py --help`; its `freeze` and `run` commands make real API calls and load model keys from a local, gitignored `.env` based on `.env.example`.
 
 ### Email Preview
 
@@ -136,19 +149,23 @@ Both senders use the same rendering functions as the preview. Essential styles a
 
 Lens icons use editable SVG sources and inline PNG images in mail. See [Email Design](docs/email-design.md) to change their colours and regenerate the exports.
 
+## Data Handling
+
+This is a personal reading aid, not an independently verified news or research source. Check the linked original before relying on an interpretation. Article excerpts, abstracts and generated digest excerpts are sent to the configured model provider; review that provider's data-use terms before supplying sensitive material. Production archives retain generated output, titles and source URLs publicly. Local bake-off inputs retain fetched text outside Git; upstream articles remain subject to their own rights and terms, not this repository's code licence.
+
 ## Roadmap
 
-- [x] **Source expansion & article body context**: Integrated Hugging Face Daily Papers and full article body scraping via Trafilatura.
-- [x] **Automated constraint validation**: Deterministic formatting and sentence count verification with 1-attempt error feedback regeneration.
-- [x] **Cross-day deduplication**: Deterministic 7-day URL filtering and model-based same-event suppression.
-- [x] **Concept Radar**: Weekly 14-day vocabulary scan with evidence-grounded explanation and 90-day term suppression.
-- [ ] **Faithfulness scoring**: Score interpretation claims against source text using human labels and LLM judge agreement ([docs/evaluation.md](docs/evaluation.md)).
-- [ ] **Reader feedback**: Lightweight email reaction link (thumbs up/down) to collect reader utility signal.
+- [x] **Done:** Add Hugging Face Daily Papers and bounded article-body extraction via Trafilatura.
+- [x] **Done:** Check selected format constraints and regenerate once with error feedback.
+- [x] **Done:** Apply seven-day URL filtering and model-based same-event suppression, with fallbacks.
+- [x] **Done:** Implement the weekly Radar's 14-day sample, bounded model requests and 90-day term history; hosted delivery after the latest fix remains unverified.
+- [ ] **Next:** Score faithfulness using preserved source inputs, human labels and held-out judge validation ([evaluation plan](docs/evaluation.md)).
+- [ ] **Next:** Add a lightweight email reaction link to collect reader feedback.
 
 ## Status
 
-Active. Daily morning digest plus weekly Concept Radar, both delivered by GitHub Actions. The daily archive has been active since 2026-08-13; Concept Radar was added on 2026-09-15. Last updated 2026-09-15.
+In progress. As checked on 2026-10-28, the [daily workflow completed successfully](https://github.com/liminal-cipher/tri-lens-news/actions/runs/40615785490). The [latest observed hosted Radar run failed on 2026-10-25](https://github.com/liminal-cipher/tri-lens-news/actions/runs/40203484331); the subsequent batching fix passed a local dry run, but its hosted delivery remains unverified. Workflow success is not confirmation that a recipient read or received the message. Last reviewed 2026-10-28.
 
-## License
+## Licence
 
 MIT. See [LICENSE](LICENSE).

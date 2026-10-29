@@ -1,7 +1,7 @@
 """Bounded, paced model requests used only by Concept Radar.
 
 The byte-based token estimate is deliberately cautious for ordinary English and
-Korean prose, not an exact tokenizer. HTTP 413 is left to the caller to split.
+Korean prose, not an exact tokeniser. HTTP 413 is left to the caller to split.
 """
 
 import math

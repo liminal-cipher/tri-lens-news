@@ -13,6 +13,10 @@ Choices made before 2026-08-13 were not backfilled. The reasoning behind the
 scheduler, model, delivery, and storage choices is in the README's Tech
 Decisions table, written at the time rather than reconstructed afterward.
 
+These entries preserve dated decisions and observations, not a current
+operations manual. Consult the README for present behaviour. Corrections are
+dated below so historical reasoning is not silently presented as verified fact.
+
 ## 2026-08-13 Failure alerts go to the sending account, not the recipients
 
 **Context.** A failed run had no signal outside the Actions tab, which is what
@@ -79,7 +83,7 @@ the same session. `retry_post` is a per-session flag defaulting to off for that
 reason. Quota errors are deliberately outside `status_forcelist`, because
 retrying an exhausted quota only delays the same failure.
 
-## 2026-08-13 Constraint checks are rules, not a model judgment
+## 2026-08-13 Constraint checks are rules, not a model judgement
 
 **Context.** The prompt's constraint block was enforced by the prompt alone, so
 a violation shipped unseen. Checking it before dispatch could be done by rule
@@ -90,7 +94,7 @@ model.
 
 **Why.** The block states its constraints literally enough to test
 mechanically: no preamble, three lenses present and in order, two sentences
-each, no markdown. A judge would add a call, a cost, and a second thing that
+each, no Markdown. A judge would add a call, a cost, and a second thing that
 can be wrong, in exchange for a less reliable version of an answer the rules
 already give exactly. One constraint, that the three lenses differ in sentence
 structure, has no mechanical test and is left unchecked rather than
@@ -126,7 +130,7 @@ selection yields fewer than three articles the run exits non-zero instead,
 because the alternative is a mail carrying a header, a footer, and nothing
 between them, which is worse for a reader than no mail at all.
 
-## 2026-08-13 Delivered digests are committed to the repo as markdown
+## 2026-08-13 Delivered digests are committed to the repo as Markdown
 
 **Context.** The interpretations went out by mail and were kept nowhere. There
 was no way to answer what was sent last week, and no corpus for the faithfulness
@@ -175,6 +179,12 @@ month is worse than last.
 **Revisit if.** The daily line stops being read, or a trend needs to be seen
 across months rather than reconstructed by opening files. Counting is the cheap
 half; nothing yet aggregates these lines or alerts on a rising number.
+
+**Correction, 2026-10-28.** The original `Retry(total=3)` allowed up to three
+retries after the first attempt, not three attempts in total. Current daily
+model calls use a separate four-retry transport limit and bounded quota retries;
+Radar has its own paced client. The paragraph above records the original
+reasoning but its attempt-count wording was inaccurate.
 
 ## 2026-08-13 A paper joins the digest, from a curated list rather than arXiv
 
@@ -331,7 +341,7 @@ also regenerates once when an output breaks a constraint.
 and fetches article bodies once, then writes them to a file. `run` reads that
 file and asks every named model for a reading of the same articles, without
 regeneration, and writes two files: a JSON holding the label-to-model map, and a
-markdown report in which each model appears only as a letter. Letters are
+Markdown report in which each model appears only as a letter. Letters are
 assigned by hashing the model name rather than by the order the models were
 named on the command line, and the order they are printed in rotates by one
 position per article.
@@ -415,7 +425,7 @@ rests on one run.
 ## 2026-09-01 Relax safety filters and replace blocked items from slot pools
 
 **Context.** The morning run on 2026-09-01 crashed on `KeyError: 'parts'` when
-Gemini returned HTTP 200 with an empty candidate whose finishReason was filtered
+Gemini returned HTTP 200 with an empty candidate whose `finishReason` was filtered
 under the default `BLOCK_MEDIUM_AND_ABOVE` safety threshold. The provider
 response extractor assumed `content.parts[0].text` always existed, and when one
 item was blocked the entire pipeline ended.
@@ -454,7 +464,7 @@ avoids unnecessary empty commits.
 
 **Revisit if.** GitHub changes its inactivity policy, multiple weekly
 runs are missed, or an actual keepalive push fails. Whether a
-GITHUB_TOKEN-authored push resets inactivity has not yet been verified.
+`GITHUB_TOKEN`-authored push resets inactivity has not yet been verified.
 
 ## 2026-10-26 Bound and pace Concept Radar model requests
 
@@ -471,7 +481,7 @@ retain more candidates than the final selection and must make progress.
 
 Every Radar request uses a 5,000 estimated input-token ceiling and a 2,000
 output-token cap. The dependency-free estimate is half the UTF-8 byte length
-plus 128 for framing; it is not an exact model tokenizer or a guarantee of
+plus 128 for framing; it is not an exact model tokeniser or a guarantee of
 server accounting. HTTP 413 splits the input further. Large individual source
 texts are split with the same source ID. Explanations run per concept, with
 bounded evidence compression when necessary. Truncated model output is also

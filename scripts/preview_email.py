@@ -126,8 +126,8 @@ def render_viewer(daily_name, radar_name):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--daily", type=Path, help="Daily archive markdown (default: latest)")
-    parser.add_argument("--radar", type=Path, help="Concept archive markdown (default: latest)")
+    parser.add_argument("--daily", type=Path, help="Daily archive Markdown (default: latest)")
+    parser.add_argument("--radar", type=Path, help="Concept archive Markdown (default: latest)")
     parser.add_argument("--output-dir", type=Path, default=ROOT_DIR / "preview", help="Generated HTML directory")
     args = parser.parse_args()
     try:

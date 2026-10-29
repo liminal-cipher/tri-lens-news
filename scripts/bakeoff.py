@@ -119,7 +119,7 @@ def freeze(path):
 
 
 def parse_models(spec):
-    """"gemini:gemini-3.6-flash,groq" 를 (provider, model) 목록으로.
+    """"gemini:gemini-3.6-flash,groq"를 (provider, model) 목록으로.
 
     모델 이름을 생략하면 그 프로바이더의 기본 모델을 쓴다. 환경변수 쪽 모델 설정은
     여기서 읽지 않는다. 비교 실행에서 무엇을 불렀는지는 명령줄에만 적혀 있어야 한다

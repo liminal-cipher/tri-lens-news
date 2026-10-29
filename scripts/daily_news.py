@@ -555,8 +555,8 @@ test-time compute(답을 만드는 시점에 연산을 더 쓰는 것)를 늘린
 def interpret_article(article):
     """한 기사의 본문을 확보하고 3-렌즈 해석 및 제약 검증을 수행한다.
 
-    본문이 없으면 여기서 가져온다. 실패 시 예외를 던져 상위 루프가 차순위 대체 여부를
-    결정할 수 있게 한다
+    본문이 없으면 여기서 가져오며, 가져오지 못하면 제목만으로 생성한다.
+    모델 생성 중 예외는 상위 루프로 전달해 차순위 대체 여부를 결정하게 한다
     """
     if not article.get("body"):
         print(f"  원문 가져오는 중: {article['title'][:50]}")
@@ -697,7 +697,7 @@ def run_stats(reports, counts, sections):
 
 
 def write_archive(date_iso, date_str, sections, stats):
-    """발송한 내용을 archive/YYYY-MM-DD.md 에 남긴다.
+    """발송한 내용을 archive/YYYY-MM-DD.md에 남긴다.
 
     파이프라인이 만든 결과물은 지금까지 메일로만 나가고 아무 데도 남지 않았다.
     나중에 해석 품질을 평가하려면 채점할 뭉치가 있어야 하고, 그 뭉치가 여기다
